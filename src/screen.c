@@ -656,7 +656,7 @@ update_screen(int type_arg)
 	check_for_delay(FALSE);
 
 #ifdef FEAT_LINEBREAK
-    /* Force redraw when width of 'number' or 'relativenumber' column
+    /* Force redraw when width of 'number' or 'nu' column
      * changes. */
     if (curwin->w_redr_type < NOT_VALID
 	   && curwin->w_nrwidth != ((curwin->w_p_nu || curwin->w_p_rnu)
@@ -2599,8 +2599,11 @@ fold_line(
 		len = w + 1;
 
 	    if (wp->w_p_nu && !wp->w_p_rnu)
+	    {
 		/* 'number' + 'norelativenumber' */
 		num = (long)lnum;
+		num++;
+	    }
 	    else
 	    {
 		/* 'relativenumber', don't use negative numbers */
@@ -2611,6 +2614,10 @@ fold_line(
 		     * line number */
 		    num = lnum;
 		    fmt = "%-*ld ";
+		}
+		else
+		{
+		    num++;    
 		}
 	    }
 
@@ -3839,8 +3846,10 @@ win_line(
 			char *fmt = "%*ld ";
 
 			if (wp->w_p_nu && !wp->w_p_rnu)
+			{
 			    /* 'number' + 'norelativenumber' */
 			    num = (long)lnum;
+			    num++;
 			else
 			{
 			    /* 'relativenumber', don't use negative numbers */
@@ -3851,6 +3860,11 @@ win_line(
 				num = lnum;
 				fmt = "%-*ld ";
 			    }
+			    else
+			    {
+				num++;
+			    }
+				    
 			}
 
 			sprintf((char *)extra, fmt,
