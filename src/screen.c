@@ -2602,7 +2602,6 @@ fold_line(
 	    {
 		/* 'number' + 'norelativenumber' */
 		num = (long)lnum;
-		num++;
 	    }
 	    else
 	    {
@@ -3849,7 +3848,7 @@ win_line(
 			{
 			    /* 'number' + 'norelativenumber' */
 			    num = (long)lnum;
-			    num++;
+			}
 			else
 			{
 			    /* 'relativenumber', don't use negative numbers */
