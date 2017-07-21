@@ -270,6 +270,8 @@ typedef struct
 # define w_p_scl w_onebuf_opt.wo_scl	/* 'signcolumn' */
 #endif
 #ifdef FEAT_TERMINAL
+    char_u	*wo_tk;
+#define w_p_tk w_onebuf_opt.wo_tk	/* 'termkey' */
     char_u	*wo_tms;
 #define w_p_tms w_onebuf_opt.wo_tms	/* 'termsize' */
 #endif
@@ -1730,6 +1732,12 @@ typedef struct
     int		jo_id;
     char_u	jo_soe_buf[NUMBUFLEN];
     char_u	*jo_stoponexit;
+
+#ifdef FEAT_TERMINAL
+    /* when non-zero run the job in a terminal window of this size */
+    int		jo_term_rows;
+    int		jo_term_cols;
+#endif
 } jobopt_T;
 
 
