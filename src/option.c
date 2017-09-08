@@ -1606,13 +1606,22 @@ static struct vimoption options[] =
 #endif
 			    SCRIPTID_INIT},
     {"imstatusfunc","imsf",P_STRING|P_VI_DEF|P_SECURE,
-# if defined(FEAT_EVAL) && defined(FEAT_XIM) && defined(FEAT_GUI_GTK)
+#if defined(FEAT_EVAL) && defined(FEAT_XIM) && defined(FEAT_GUI_GTK)
 			    (char_u *)&p_imsf, PV_NONE,
 			    {(char_u *)"", (char_u *)NULL}
-# else
+#else
 			    (char_u *)NULL, PV_NONE,
 			    {(char_u *)NULL, (char_u *)0L}
-# endif
+#endif
+			    SCRIPTID_INIT},
+    {"imstyle",	    "imst", P_NUM|P_VI_DEF|P_SECURE,
+#if defined(FEAT_XIM) && defined(FEAT_GUI_GTK)
+			    (char_u *)&p_imst, PV_NONE,
+			    {(char_u *)IM_OVER_THE_SPOT, (char_u *)0L}
+#else
+			    (char_u *)NULL, PV_NONE,
+			    {(char_u *)0L, (char_u *)0L}
+#endif
 			    SCRIPTID_INIT},
     {"include",	    "inc",  P_STRING|P_ALLOCED|P_VI_DEF,
 #ifdef FEAT_FIND_ID
@@ -2196,7 +2205,9 @@ static struct vimoption options[] =
     {"printheader", "pheader",  P_STRING|P_VI_DEF|P_GETTEXT,
 #ifdef FEAT_PRINTER
 			    (char_u *)&p_header, PV_NONE,
-			    {(char_u *)N_("%<%f%h%m%=Page %N"), (char_u *)0L}
+			    /* untranslated to avoid problems when 'encoding'
+			     * is changed */
+			    {(char_u *)"%<%f%h%m%=Page %N", (char_u *)0L}
 #else
 			    (char_u *)NULL, PV_NONE,
 			    {(char_u *)NULL, (char_u *)0L}
@@ -3192,6 +3203,7 @@ static struct vimoption options[] =
     p_term("t_nd", T_ND)
     p_term("t_op", T_OP)
     p_term("t_RB", T_RBG)
+    p_term("t_RC", T_CRC)
     p_term("t_RI", T_CRI)
     p_term("t_RS", T_CRS)
     p_term("t_RV", T_CRV)
@@ -3204,8 +3216,10 @@ static struct vimoption options[] =
     p_term("t_so", T_SO)
     p_term("t_SR", T_CSR)
     p_term("t_sr", T_SR)
+    p_term("t_Te", T_STE)
     p_term("t_te", T_TE)
     p_term("t_ti", T_TI)
+    p_term("t_Ts", T_STS)
     p_term("t_ts", T_TS)
     p_term("t_u7", T_U7)
     p_term("t_ue", T_UE)
@@ -4010,8 +4024,8 @@ set_init_2(void)
  * This is just guessing!  Recognized are:
  * "linux"	    Linux console
  * "screen.linux"   Linux console with screen
- * "cygwin"	    Cygwin shell
- * "putty"	    Putty program
+ * "cygwin.*"	    Cygwin shell
+ * "putty.*"	    Putty program
  * We also check the COLORFGBG environment variable, which is set by
  * rxvt and derivatives. This variable contains either two or three
  * values separated by semicolons; we want the last value in either
@@ -4021,15 +4035,15 @@ set_init_2(void)
 term_bg_default(void)
 {
 #if defined(WIN3264)
-    /* DOS console nearly always black */
+    /* DOS console is nearly always black */
     return (char_u *)"dark";
 #else
     char_u	*p;
 
     if (STRCMP(T_NAME, "linux") == 0
 	    || STRCMP(T_NAME, "screen.linux") == 0
-	    || STRCMP(T_NAME, "cygwin") == 0
-	    || STRCMP(T_NAME, "putty") == 0
+	    || STRNCMP(T_NAME, "cygwin", 6) == 0
+	    || STRNCMP(T_NAME, "putty", 5) == 0
 	    || ((p = mch_getenv((char_u *)"COLORFGBG")) != NULL
 		&& (p = vim_strrchr(p, ';')) != NULL
 		&& ((p[1] >= '0' && p[1] <= '6') || p[1] == '8')
@@ -8986,6 +9000,15 @@ set_num_option(
 	status_redraw_curbuf();
 #endif
     }
+
+#if defined(FEAT_XIM) && defined(FEAT_GUI_GTK)
+    /* 'imstyle' */
+    else if (pp == &p_imst)
+    {
+	if (p_imst != IM_ON_THE_SPOT && p_imst != IM_OVER_THE_SPOT)
+	    errmsg = e_invarg;
+    }
+#endif
 
     else if (pp == &p_window)
     {
