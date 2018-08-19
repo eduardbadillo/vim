@@ -399,6 +399,20 @@ smsg_attr(int attr, char_u *s, ...)
     return msg_attr(IObuff, attr);
 }
 
+    int
+# ifdef __BORLANDC__
+_RTLENTRYF
+# endif
+smsg_attr_keep(int attr, char_u *s, ...)
+{
+    va_list arglist;
+
+    va_start(arglist, s);
+    vim_vsnprintf((char *)IObuff, IOSIZE, (char *)s, arglist);
+    va_end(arglist);
+    return msg_attr_keep(IObuff, attr, TRUE);
+}
+
 #endif
 
 /*
@@ -415,8 +429,7 @@ static char_u   *last_sourcing_name = NULL;
     void
 reset_last_sourcing(void)
 {
-    vim_free(last_sourcing_name);
-    last_sourcing_name = NULL;
+    VIM_CLEAR(last_sourcing_name);
     last_sourcing_lnum = 0;
 }
 
@@ -761,7 +774,7 @@ emsgn(char_u *s, long n)
     void
 iemsg(char_u *s)
 {
-    msg(s);
+    emsg(s);
 #ifdef ABORT_ON_INTERNAL_ERROR
     abort();
 #endif
@@ -983,7 +996,11 @@ ex_messages(exarg_T *eap)
     {
 	s = mch_getenv((char_u *)"LANG");
 	if (s != NULL && *s != NUL)
+	    // The next comment is extracted by xgettext and put in po file for
+	    // translators to read.
 	    msg_attr((char_u *)
+		    // Translator: Please replace the name and email address
+		    // with the appropriate text for your translation.
 		    _("Messages maintainer: Bram Moolenaar <Bram@vim.org>"),
 		    HL_ATTR(HLF_T));
     }
@@ -1026,7 +1043,7 @@ wait_return(int redraw)
     int		oldState;
     int		tmpState;
     int		had_got_int;
-    int		save_Recording;
+    int		save_reg_recording;
     FILE	*save_scriptout;
 
     if (redraw == TRUE)
@@ -1104,16 +1121,16 @@ wait_return(int redraw)
 	    /* Temporarily disable Recording. If Recording is active, the
 	     * character will be recorded later, since it will be added to the
 	     * typebuf after the loop */
-	    save_Recording = Recording;
+	    save_reg_recording = reg_recording;
 	    save_scriptout = scriptout;
-	    Recording = FALSE;
+	    reg_recording = 0;
 	    scriptout = NULL;
 	    c = safe_vgetc();
 	    if (had_got_int && !global_busy)
 		got_int = FALSE;
 	    --no_mapping;
 	    --allow_keys;
-	    Recording = save_Recording;
+	    reg_recording = save_reg_recording;
 	    scriptout = save_scriptout;
 
 #ifdef FEAT_CLIPBOARD
@@ -1220,6 +1237,9 @@ wait_return(int redraw)
 	    cmdline_row = msg_row;
 	skip_redraw = TRUE;	    /* skip redraw once */
 	do_redraw = FALSE;
+#ifdef FEAT_TERMINAL
+	skip_term_loop = TRUE;
+#endif
     }
 
     /*
@@ -1249,10 +1269,7 @@ wait_return(int redraw)
     reset_last_sourcing();
     if (keep_msg != NULL && vim_strsize(keep_msg) >=
 				  (Rows - cmdline_row - 1) * Columns + sc_col)
-    {
-	vim_free(keep_msg);
-	keep_msg = NULL;	    /* don't redisplay message, it's too long */
-    }
+	VIM_CLEAR(keep_msg);	    /* don't redisplay message, it's too long */
 
     if (tmpState == SETWSIZE)	    /* got resize event while in vgetc() */
     {
@@ -1325,10 +1342,7 @@ msg_start(void)
     int		did_return = FALSE;
 
     if (!msg_silent)
-    {
-	vim_free(keep_msg);
-	keep_msg = NULL;		/* don't display old message now */
-    }
+	VIM_CLEAR(keep_msg);
 
 #ifdef FEAT_EVAL
     if (need_clr_eos)
@@ -1710,8 +1724,6 @@ str2special(
 	{
 	    c = TO_SPECIAL(str[1], str[2]);
 	    str += 2;
-	    if (c == KS_ZERO)	/* display <Nul> as ^@ or <Nul> */
-		c = NUL;
 	}
 	if (IS_SPECIAL(c) || modifiers)	/* special key */
 	    special = TRUE;
@@ -1837,7 +1849,12 @@ msg_prt_line(char_u *s, int list)
 	    if (c == TAB && (!list || lcs_tab1))
 	    {
 		/* tab amount depends on current column */
+#ifdef FEAT_VARTABS
+		n_extra = tabstop_padding(col, curbuf->b_p_ts,
+						    curbuf->b_p_vts_array) - 1;
+#else
 		n_extra = curbuf->b_p_ts - col % curbuf->b_p_ts - 1;
+#endif
 		if (!list)
 		{
 		    c = ' ';
@@ -2836,6 +2853,9 @@ do_more_prompt(int typed_char)
 		/* Since got_int is set all typeahead will be flushed, but we
 		 * want to keep this ':', remember that in a special way. */
 		typeahead_noflush(':');
+#ifdef FEAT_TERMINAL
+		skip_term_loop = TRUE;
+#endif
 		cmdline_row = Rows - 1;		/* put ':' on this line */
 		skip_redraw = TRUE;		/* skip redraw once */
 		need_wait_return = FALSE;	/* don't wait in main() */
@@ -3481,8 +3501,7 @@ give_warning(char_u *message, int hl)
 #ifdef FEAT_EVAL
     set_vim_var_string(VV_WARNINGMSG, message, -1);
 #endif
-    vim_free(keep_msg);
-    keep_msg = NULL;
+    VIM_CLEAR(keep_msg);
     if (hl)
 	keep_msg_attr = HL_ATTR(HLF_W);
     else
@@ -4067,7 +4086,7 @@ do_browse(
 	}
 	else
 	    fname = gui_mch_browse(flags & BROWSE_SAVE,
-					   title, dflt, ext, initdir, filter);
+			       title, dflt, ext, initdir, (char_u *)_(filter));
 
 	/* We hang around in the dialog for a while, the user might do some
 	 * things to our files.  The Win32 dialog allows deleting or renaming
@@ -4993,7 +5012,7 @@ vim_vsnprintf_typval(
 			    zero_padding = 0;
 			}
 			else
-                        {
+			{
 			    /* Regular float number */
 			    format[0] = '%';
 			    l = 1;
@@ -5016,7 +5035,7 @@ vim_vsnprintf_typval(
 			    format[l + 1] = NUL;
 
 			    str_arg_l = sprintf(tmp, format, f);
-                        }
+			}
 
 			if (remove_trailing_zeroes)
 			{

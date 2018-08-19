@@ -266,10 +266,8 @@ u_save(linenr_T top, linenr_T bot)
     if (undo_off)
 	return OK;
 
-    if (top > curbuf->b_ml.ml_line_count
-	    || top >= bot
-	    || bot > curbuf->b_ml.ml_line_count + 1)
-	return FALSE;	/* rely on caller to do error messages */
+    if (top >= bot || bot > curbuf->b_ml.ml_line_count + 1)
+	return FAIL;	// rely on caller to give an error message
 
     if (top + 2 == bot)
 	u_saveline((linenr_T)(top + 1));
@@ -424,7 +422,6 @@ u_savecommon(
 	term_change_in_curbuf();
 #endif
 
-#ifdef FEAT_AUTOCMD
 	/*
 	 * Saving text for undo means we are going to make a change.  Give a
 	 * warning for a read-only file before making the change, so that the
@@ -439,7 +436,6 @@ u_savecommon(
 	    EMSG(_("E881: Line count changed unexpectedly"));
 	    return FAIL;
 	}
-#endif
     }
 
 #ifdef U_DEBUG
@@ -849,8 +845,7 @@ u_get_undo_file_name(char_u *buf_ffname, int reading)
 	if (undo_file_name != NULL && (!reading
 			       || mch_stat((char *)undo_file_name, &st) >= 0))
 	    break;
-	vim_free(undo_file_name);
-	undo_file_name = NULL;
+	VIM_CLEAR(undo_file_name);
     }
 
     vim_free(munged_name);
@@ -2632,11 +2627,9 @@ u_undoredo(int undo)
     int		empty_buffer;		    /* buffer became empty */
     u_header_T	*curhead = curbuf->b_u_curhead;
 
-#ifdef FEAT_AUTOCMD
     /* Don't want autocommands using the undo structures here, they are
      * invalid till the end. */
     block_autocmds();
-#endif
 
 #ifdef U_DEBUG
     u_check(FALSE);
@@ -2665,9 +2658,7 @@ u_undoredo(int undo)
 	if (top > curbuf->b_ml.ml_line_count || top >= bot
 				      || bot > curbuf->b_ml.ml_line_count + 1)
 	{
-#ifdef FEAT_AUTOCMD
 	    unblock_autocmds();
-#endif
 	    IEMSG(_("E438: u_undo: line numbers wrong"));
 	    changed();		/* don't want UNCHANGED now */
 	    return;
@@ -2892,9 +2883,7 @@ u_undoredo(int undo)
      * the undone/redone change. */
     curbuf->b_u_time_cur = curhead->uh_time;
 
-#ifdef FEAT_AUTOCMD
     unblock_autocmds();
-#endif
 #ifdef U_DEBUG
     u_check(FALSE);
 #endif
@@ -2977,7 +2966,7 @@ u_undo_end(
     }
 #endif
 
-    smsg((char_u *)_("%ld %s; %s #%ld  %s"),
+    smsg_attr_keep(0, (char_u *)_("%ld %s; %s #%ld  %s"),
 	    u_oldcount < 0 ? -u_oldcount : u_oldcount,
 	    _(msgstr),
 	    did_undo ? _("before") : _("after"),
@@ -3038,7 +3027,7 @@ ex_undolist(exarg_T *eap UNUSED)
 	{
 	    if (ga_grow(&ga, 1) == FAIL)
 		break;
-	    vim_snprintf((char *)IObuff, IOSIZE, "%6ld %7ld  ",
+	    vim_snprintf((char *)IObuff, IOSIZE, "%6ld %7d  ",
 							uhp->uh_seq, changes);
 	    u_add_time(IObuff + STRLEN(IObuff), IOSIZE - STRLEN(IObuff),
 								uhp->uh_time);
@@ -3454,8 +3443,7 @@ u_clearline(void)
 {
     if (curbuf->b_u_line_ptr != NULL)
     {
-	vim_free(curbuf->b_u_line_ptr);
-	curbuf->b_u_line_ptr = NULL;
+	VIM_CLEAR(curbuf->b_u_line_ptr);
 	curbuf->b_u_line_lnum = 0;
     }
 }
@@ -3549,7 +3537,9 @@ bufIsChanged(buf_T *buf)
     int
 bufIsChangedNotTerm(buf_T *buf)
 {
-    return !bt_dontwrite(buf)
+    // In a "prompt" buffer we do respect 'modified', so that we can control
+    // closing the window by setting or resetting that option.
+    return (!bt_dontwrite(buf) || bt_prompt(buf))
 	&& (buf->b_changed || file_ff_differs(buf, TRUE));
 }
 
@@ -3575,14 +3565,14 @@ u_eval_tree(u_header_T *first_uhp, list_T *list)
 	dict = dict_alloc();
 	if (dict == NULL)
 	    return;
-	dict_add_nr_str(dict, "seq", uhp->uh_seq, NULL);
-	dict_add_nr_str(dict, "time", (long)uhp->uh_time, NULL);
+	dict_add_number(dict, "seq", uhp->uh_seq);
+	dict_add_number(dict, "time", (long)uhp->uh_time);
 	if (uhp == curbuf->b_u_newhead)
-	    dict_add_nr_str(dict, "newhead", 1, NULL);
+	    dict_add_number(dict, "newhead", 1);
 	if (uhp == curbuf->b_u_curhead)
-	    dict_add_nr_str(dict, "curhead", 1, NULL);
+	    dict_add_number(dict, "curhead", 1);
 	if (uhp->uh_save_nr > 0)
-	    dict_add_nr_str(dict, "save", uhp->uh_save_nr, NULL);
+	    dict_add_number(dict, "save", uhp->uh_save_nr);
 
 	if (uhp->uh_alt_next.ptr != NULL)
 	{

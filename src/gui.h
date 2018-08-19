@@ -65,8 +65,9 @@
 /*
  * GUIs that support dropping files on a running Vim.
  */
-#if defined(FEAT_GUI_MSWIN) || defined(FEAT_GUI_MAC) \
-	|| defined(FEAT_GUI_GTK)
+#if (defined(FEAT_DND) && defined(FEAT_GUI_GTK)) \
+	|| defined(FEAT_GUI_MSWIN) \
+	|| defined(FEAT_GUI_MAC)
 # define HAVE_DROP_FILE
 #endif
 
@@ -207,6 +208,8 @@ typedef long	    guicolor_T;	/* handle for a GUI color; for X11 this should
 #define INVALCOLOR (guicolor_T)-11111	/* number for invalid color; on 32 bit
 				   displays there is a tiny chance this is an
 				   actual color */
+#define CTERMCOLOR (guicolor_T)-11110	/* only used for cterm.bg_rgb and
+					   cterm.fg_rgb: use cterm color */
 
 #ifdef FEAT_GUI_GTK
   typedef PangoFontDescription	*GuiFont;       /* handle for a GUI font */
@@ -562,3 +565,7 @@ typedef enum
 #  define FUNC2GENERIC(func) G_CALLBACK(func)
 # endif
 #endif /* FEAT_GUI_GTK */
+
+#if defined(UNIX) && !defined(FEAT_GUI_MAC)
+# define GUI_MAY_FORK
+#endif

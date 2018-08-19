@@ -36,7 +36,6 @@ SCRIPTS_ALL = \
 SCRIPTS_MORE1 = \
 	test11.out \
 	test52.out \
-	test85.out \
 	test86.out \
 	test87.out
 
@@ -72,9 +71,11 @@ NEW_TESTS = test_arabic.res \
 	    test_autocmd.res \
 	    test_autoload.res \
 	    test_backspace_opt.res \
+	    test_blockedit.res \
 	    test_breakindent.res \
 	    test_bufwintabinfo.res \
 	    test_cdo.res \
+	    test_changelist.res \
 	    test_channel.res \
 	    test_charsearch.res \
 	    test_cindent.res \
@@ -96,6 +97,7 @@ NEW_TESTS = test_arabic.res \
 	    test_exec_while_if.res \
 	    test_exists.res \
 	    test_exists_autocmd.res \
+	    test_exit.res \
 	    test_farsi.res \
 	    test_file_size.res \
 	    test_find_complete.res \
@@ -120,6 +122,7 @@ NEW_TESTS = test_arabic.res \
 	    test_ins_complete.res \
 	    test_job_fails.res \
 	    test_json.res \
+	    test_jumplist.res \
 	    test_langmap.res \
 	    test_let.res \
 	    test_lineending.res \
@@ -144,6 +147,7 @@ NEW_TESTS = test_arabic.res \
 	    test_plus_arg_edit.res \
 	    test_preview.res \
 	    test_profile.res \
+	    test_prompt_buffer.res \
 	    test_python2.res \
 	    test_python3.res \
 	    test_pyx2.res \
@@ -175,6 +179,7 @@ NEW_TESTS = test_arabic.res \
 	    test_undo.res \
 	    test_user_func.res \
 	    test_usercommands.res \
+	    test_vartabs.res \
 	    test_viminfo.res \
 	    test_vimscript.res \
 	    test_visual.res \
@@ -184,6 +189,7 @@ NEW_TESTS = test_arabic.res \
 	    test_windows_home.res \
 	    test_wordcount.res \
 	    test_writefile.res \
+	    test_xxd.res \
 	    test_alot_latin.res \
 	    test_alot_utf8.res \
 	    test_alot.res

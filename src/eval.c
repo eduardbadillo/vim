@@ -361,10 +361,7 @@ eval_clear(void)
     {
 	p = &vimvars[i];
 	if (p->vv_di.di_tv.v_type == VAR_STRING)
-	{
-	    vim_free(p->vv_str);
-	    p->vv_str = NULL;
-	}
+	    VIM_CLEAR(p->vv_str);
 	else if (p->vv_di.di_tv.v_type == VAR_LIST)
 	{
 	    list_unref(p->vv_list);
@@ -569,14 +566,11 @@ var_redir_stop(void)
 	}
 
 	/* free the collected output */
-	vim_free(redir_ga.ga_data);
-	redir_ga.ga_data = NULL;
+	VIM_CLEAR(redir_ga.ga_data);
 
-	vim_free(redir_lval);
-	redir_lval = NULL;
+	VIM_CLEAR(redir_lval);
     }
-    vim_free(redir_varname);
-    redir_varname = NULL;
+    VIM_CLEAR(redir_varname);
 }
 
 # if defined(FEAT_MBYTE) || defined(PROTO)
@@ -735,6 +729,7 @@ eval_expr_typval(typval_T *expr, typval_T *argv, int argc, typval_T *rettv)
 	    return FAIL;
 	if (*s != NUL)  /* check for trailing chars after expr */
 	{
+	    clear_tv(rettv);
 	    EMSG2(_(e_invexpr2), s);
 	    return FAIL;
 	}
@@ -1009,10 +1004,7 @@ eval_expr(char_u *arg, char_u **nextcmd)
 
     tv = (typval_T *)alloc(sizeof(typval_T));
     if (tv != NULL && eval0(arg, tv, nextcmd, TRUE) == FAIL)
-    {
-	vim_free(tv);
-	tv = NULL;
-    }
+	VIM_CLEAR(tv);
 
     return tv;
 }
@@ -1020,80 +1012,24 @@ eval_expr(char_u *arg, char_u **nextcmd)
 
 /*
  * Call some Vim script function and return the result in "*rettv".
- * Uses argv[argc] for the function arguments.  Only Number and String
- * arguments are currently supported.
+ * Uses argv[0] to argv[argc - 1] for the function arguments.  argv[argc]
+ * should have type VAR_UNKNOWN.
  * Returns OK or FAIL.
  */
     int
 call_vim_function(
     char_u      *func,
     int		argc,
-    char_u      **argv,
-    int		safe,		/* use the sandbox */
-    int		str_arg_only,	/* all arguments are strings */
+    typval_T	*argv,
     typval_T	*rettv)
 {
-    typval_T	*argvars;
-    varnumber_T	n;
-    int		len;
-    int		i;
     int		doesrange;
-    void	*save_funccalp = NULL;
     int		ret;
 
-    argvars = (typval_T *)alloc((unsigned)((argc + 1) * sizeof(typval_T)));
-    if (argvars == NULL)
-	return FAIL;
-
-    for (i = 0; i < argc; i++)
-    {
-	/* Pass a NULL or empty argument as an empty string */
-	if (argv[i] == NULL || *argv[i] == NUL)
-	{
-	    argvars[i].v_type = VAR_STRING;
-	    argvars[i].vval.v_string = (char_u *)"";
-	    continue;
-	}
-
-	if (str_arg_only)
-	    len = 0;
-	else
-	{
-	    /* Recognize a number argument, the others must be strings. A dash
-	     * is a string too. */
-	    vim_str2nr(argv[i], NULL, &len, STR2NR_ALL, &n, NULL, 0);
-	    if (len == 1 && *argv[i] == '-')
-		len = 0;
-	}
-	if (len != 0 && len == (int)STRLEN(argv[i]))
-	{
-	    argvars[i].v_type = VAR_NUMBER;
-	    argvars[i].vval.v_number = n;
-	}
-	else
-	{
-	    argvars[i].v_type = VAR_STRING;
-	    argvars[i].vval.v_string = argv[i];
-	}
-    }
-
-    if (safe)
-    {
-	save_funccalp = save_funccal();
-	++sandbox;
-    }
-
     rettv->v_type = VAR_UNKNOWN;		/* clear_tv() uses this */
-    ret = call_func(func, (int)STRLEN(func), rettv, argc, argvars, NULL,
+    ret = call_func(func, (int)STRLEN(func), rettv, argc, argv, NULL,
 		    curwin->w_cursor.lnum, curwin->w_cursor.lnum,
 		    &doesrange, TRUE, NULL, NULL);
-    if (safe)
-    {
-	--sandbox;
-	restore_funccal(save_funccalp);
-    }
-    vim_free(argvars);
-
     if (ret == FAIL)
 	clear_tv(rettv);
 
@@ -1103,20 +1039,19 @@ call_vim_function(
 /*
  * Call Vim script function "func" and return the result as a number.
  * Returns -1 when calling the function fails.
- * Uses argv[argc] for the function arguments.
+ * Uses argv[0] to argv[argc - 1] for the function arguments. argv[argc] should
+ * have type VAR_UNKNOWN.
  */
     varnumber_T
 call_func_retnr(
     char_u      *func,
     int		argc,
-    char_u      **argv,
-    int		safe)		/* use the sandbox */
+    typval_T	*argv)
 {
     typval_T	rettv;
     varnumber_T	retval;
 
-    /* All arguments are passed as strings, no conversion to number. */
-    if (call_vim_function(func, argc, argv, safe, TRUE, &rettv) == FAIL)
+    if (call_vim_function(func, argc, argv, &rettv) == FAIL)
 	return -1;
 
     retval = get_tv_number_chk(&rettv, NULL);
@@ -1131,20 +1066,19 @@ call_func_retnr(
 /*
  * Call Vim script function "func" and return the result as a string.
  * Returns NULL when calling the function fails.
- * Uses argv[argc] for the function arguments.
+ * Uses argv[0] to argv[argc - 1] for the function arguments. argv[argc] should
+ * have type VAR_UNKNOWN.
  */
     void *
 call_func_retstr(
     char_u      *func,
     int		argc,
-    char_u      **argv,
-    int		safe)		/* use the sandbox */
+    typval_T	*argv)
 {
     typval_T	rettv;
     char_u	*retval;
 
-    /* All arguments are passed as strings, no conversion to number. */
-    if (call_vim_function(func, argc, argv, safe, TRUE, &rettv) == FAIL)
+    if (call_vim_function(func, argc, argv, &rettv) == FAIL)
 	return NULL;
 
     retval = vim_strsave(get_tv_string(&rettv));
@@ -1155,20 +1089,19 @@ call_func_retstr(
 
 /*
  * Call Vim script function "func" and return the result as a List.
- * Uses argv[argc] for the function arguments.
+ * Uses argv[0] to argv[argc - 1] for the function arguments. argv[argc] should
+ * have type VAR_UNKNOWN.
  * Returns NULL when there is something wrong.
  */
     void *
 call_func_retlist(
     char_u      *func,
     int		argc,
-    char_u      **argv,
-    int		safe)		/* use the sandbox */
+    typval_T	*argv)
 {
     typval_T	rettv;
 
-    /* All arguments are passed as strings, no conversion to number. */
-    if (call_vim_function(func, argc, argv, safe, TRUE, &rettv) == FAIL)
+    if (call_vim_function(func, argc, argv, &rettv) == FAIL)
 	return NULL;
 
     if (rettv.v_type != VAR_LIST)
@@ -2767,6 +2700,20 @@ ex_unletlock(
 
     do
     {
+	if (*arg == '$')
+	{
+	    char_u    *name = ++arg;
+
+	    if (get_env_len(&arg) == 0)
+	    {
+		EMSG2(_(e_invarg2), name - 1);
+		return;
+	    }
+	    vim_unsetenv(name);
+	    arg = skipwhite(arg);
+	    continue;
+	}
+
 	/* Parse the name and find the end. */
 	name_end = get_lval(arg, NULL, &lv, TRUE, eap->skip || error, 0,
 							     FNE_CHECK_START);
@@ -3213,8 +3160,7 @@ get_user_var_name(expand_T *xp, int idx)
     if (vidx < VV_LEN)
 	return cat_prefix_varname('v', (char_u *)vimvars[vidx++].vv_name);
 
-    vim_free(varnamebuf);
-    varnamebuf = NULL;
+    VIM_CLEAR(varnamebuf);
     varnamebuflen = 0;
     return NULL;
 }
@@ -3245,22 +3191,6 @@ pattern_match(char_u *pat, char_u *text, int ic)
     p_cpo = save_cpo;
     return matches;
 }
-
-/*
- * types for expressions.
- */
-typedef enum
-{
-    TYPE_UNKNOWN = 0
-    , TYPE_EQUAL	/* == */
-    , TYPE_NEQUAL	/* != */
-    , TYPE_GREATER	/* >  */
-    , TYPE_GEQUAL	/* >= */
-    , TYPE_SMALLER	/* <  */
-    , TYPE_SEQUAL	/* <= */
-    , TYPE_MATCH	/* =~ */
-    , TYPE_NOMATCH	/* !~ */
-} exptype_T;
 
 /*
  * The "evaluate" argument: When FALSE, the argument is only parsed but not
@@ -3541,9 +3471,6 @@ eval4(char_u **arg, typval_T *rettv, int evaluate)
     exptype_T	type = TYPE_UNKNOWN;
     int		type_is = FALSE;    /* TRUE for "is" and "isnot" */
     int		len = 2;
-    varnumber_T	n1, n2;
-    char_u	*s1, *s2;
-    char_u	buf1[NUMBUFLEN], buf2[NUMBUFLEN];
     int		ic;
 
     /*
@@ -3625,197 +3552,12 @@ eval4(char_u **arg, typval_T *rettv, int evaluate)
 	    clear_tv(rettv);
 	    return FAIL;
 	}
-
 	if (evaluate)
 	{
-	    if (type_is && rettv->v_type != var2.v_type)
-	    {
-		/* For "is" a different type always means FALSE, for "notis"
-		 * it means TRUE. */
-		n1 = (type == TYPE_NEQUAL);
-	    }
-	    else if (rettv->v_type == VAR_LIST || var2.v_type == VAR_LIST)
-	    {
-		if (type_is)
-		{
-		    n1 = (rettv->v_type == var2.v_type
-				   && rettv->vval.v_list == var2.vval.v_list);
-		    if (type == TYPE_NEQUAL)
-			n1 = !n1;
-		}
-		else if (rettv->v_type != var2.v_type
-			|| (type != TYPE_EQUAL && type != TYPE_NEQUAL))
-		{
-		    if (rettv->v_type != var2.v_type)
-			EMSG(_("E691: Can only compare List with List"));
-		    else
-			EMSG(_("E692: Invalid operation for List"));
-		    clear_tv(rettv);
-		    clear_tv(&var2);
-		    return FAIL;
-		}
-		else
-		{
-		    /* Compare two Lists for being equal or unequal. */
-		    n1 = list_equal(rettv->vval.v_list, var2.vval.v_list,
-								   ic, FALSE);
-		    if (type == TYPE_NEQUAL)
-			n1 = !n1;
-		}
-	    }
+	    int ret = typval_compare(rettv, &var2, type, type_is, ic);
 
-	    else if (rettv->v_type == VAR_DICT || var2.v_type == VAR_DICT)
-	    {
-		if (type_is)
-		{
-		    n1 = (rettv->v_type == var2.v_type
-				   && rettv->vval.v_dict == var2.vval.v_dict);
-		    if (type == TYPE_NEQUAL)
-			n1 = !n1;
-		}
-		else if (rettv->v_type != var2.v_type
-			|| (type != TYPE_EQUAL && type != TYPE_NEQUAL))
-		{
-		    if (rettv->v_type != var2.v_type)
-			EMSG(_("E735: Can only compare Dictionary with Dictionary"));
-		    else
-			EMSG(_("E736: Invalid operation for Dictionary"));
-		    clear_tv(rettv);
-		    clear_tv(&var2);
-		    return FAIL;
-		}
-		else
-		{
-		    /* Compare two Dictionaries for being equal or unequal. */
-		    n1 = dict_equal(rettv->vval.v_dict, var2.vval.v_dict,
-								   ic, FALSE);
-		    if (type == TYPE_NEQUAL)
-			n1 = !n1;
-		}
-	    }
-
-	    else if (rettv->v_type == VAR_FUNC || var2.v_type == VAR_FUNC
-		|| rettv->v_type == VAR_PARTIAL || var2.v_type == VAR_PARTIAL)
-	    {
-		if (type != TYPE_EQUAL && type != TYPE_NEQUAL)
-		{
-		    EMSG(_("E694: Invalid operation for Funcrefs"));
-		    clear_tv(rettv);
-		    clear_tv(&var2);
-		    return FAIL;
-		}
-		if ((rettv->v_type == VAR_PARTIAL
-					     && rettv->vval.v_partial == NULL)
-			|| (var2.v_type == VAR_PARTIAL
-					      && var2.vval.v_partial == NULL))
-		    /* when a partial is NULL assume not equal */
-		    n1 = FALSE;
-		else if (type_is)
-		{
-		    if (rettv->v_type == VAR_FUNC && var2.v_type == VAR_FUNC)
-			/* strings are considered the same if their value is
-			 * the same */
-			n1 = tv_equal(rettv, &var2, ic, FALSE);
-		    else if (rettv->v_type == VAR_PARTIAL
-						&& var2.v_type == VAR_PARTIAL)
-			n1 = (rettv->vval.v_partial == var2.vval.v_partial);
-		    else
-			n1 = FALSE;
-		}
-		else
-		    n1 = tv_equal(rettv, &var2, ic, FALSE);
-		if (type == TYPE_NEQUAL)
-		    n1 = !n1;
-	    }
-
-#ifdef FEAT_FLOAT
-	    /*
-	     * If one of the two variables is a float, compare as a float.
-	     * When using "=~" or "!~", always compare as string.
-	     */
-	    else if ((rettv->v_type == VAR_FLOAT || var2.v_type == VAR_FLOAT)
-		    && type != TYPE_MATCH && type != TYPE_NOMATCH)
-	    {
-		float_T f1, f2;
-
-		if (rettv->v_type == VAR_FLOAT)
-		    f1 = rettv->vval.v_float;
-		else
-		    f1 = get_tv_number(rettv);
-		if (var2.v_type == VAR_FLOAT)
-		    f2 = var2.vval.v_float;
-		else
-		    f2 = get_tv_number(&var2);
-		n1 = FALSE;
-		switch (type)
-		{
-		    case TYPE_EQUAL:    n1 = (f1 == f2); break;
-		    case TYPE_NEQUAL:   n1 = (f1 != f2); break;
-		    case TYPE_GREATER:  n1 = (f1 > f2); break;
-		    case TYPE_GEQUAL:   n1 = (f1 >= f2); break;
-		    case TYPE_SMALLER:  n1 = (f1 < f2); break;
-		    case TYPE_SEQUAL:   n1 = (f1 <= f2); break;
-		    case TYPE_UNKNOWN:
-		    case TYPE_MATCH:
-		    case TYPE_NOMATCH:  break;  /* avoid gcc warning */
-		}
-	    }
-#endif
-
-	    /*
-	     * If one of the two variables is a number, compare as a number.
-	     * When using "=~" or "!~", always compare as string.
-	     */
-	    else if ((rettv->v_type == VAR_NUMBER || var2.v_type == VAR_NUMBER)
-		    && type != TYPE_MATCH && type != TYPE_NOMATCH)
-	    {
-		n1 = get_tv_number(rettv);
-		n2 = get_tv_number(&var2);
-		switch (type)
-		{
-		    case TYPE_EQUAL:    n1 = (n1 == n2); break;
-		    case TYPE_NEQUAL:   n1 = (n1 != n2); break;
-		    case TYPE_GREATER:  n1 = (n1 > n2); break;
-		    case TYPE_GEQUAL:   n1 = (n1 >= n2); break;
-		    case TYPE_SMALLER:  n1 = (n1 < n2); break;
-		    case TYPE_SEQUAL:   n1 = (n1 <= n2); break;
-		    case TYPE_UNKNOWN:
-		    case TYPE_MATCH:
-		    case TYPE_NOMATCH:  break;  /* avoid gcc warning */
-		}
-	    }
-	    else
-	    {
-		s1 = get_tv_string_buf(rettv, buf1);
-		s2 = get_tv_string_buf(&var2, buf2);
-		if (type != TYPE_MATCH && type != TYPE_NOMATCH)
-		    i = ic ? MB_STRICMP(s1, s2) : STRCMP(s1, s2);
-		else
-		    i = 0;
-		n1 = FALSE;
-		switch (type)
-		{
-		    case TYPE_EQUAL:    n1 = (i == 0); break;
-		    case TYPE_NEQUAL:   n1 = (i != 0); break;
-		    case TYPE_GREATER:  n1 = (i > 0); break;
-		    case TYPE_GEQUAL:   n1 = (i >= 0); break;
-		    case TYPE_SMALLER:  n1 = (i < 0); break;
-		    case TYPE_SEQUAL:   n1 = (i <= 0); break;
-
-		    case TYPE_MATCH:
-		    case TYPE_NOMATCH:
-			    n1 = pattern_match(s2, s1, ic);
-			    if (type == TYPE_NOMATCH)
-				n1 = !n1;
-			    break;
-
-		    case TYPE_UNKNOWN:  break;  /* avoid gcc warning */
-		}
-	    }
-	    clear_tv(rettv);
 	    clear_tv(&var2);
-	    rettv->v_type = VAR_NUMBER;
-	    rettv->vval.v_number = n1;
+	    return ret;
 	}
     }
 
@@ -5339,11 +5081,9 @@ garbage_collect(int testing)
     FOR_ALL_TAB_WINDOWS(tp, wp)
 	abort = abort || set_ref_in_item(&wp->w_winvar.di_tv, copyID,
 								  NULL, NULL);
-#ifdef FEAT_AUTOCMD
     if (aucmd_win != NULL)
 	abort = abort || set_ref_in_item(&aucmd_win->w_winvar.di_tv, copyID,
 								  NULL, NULL);
-#endif
 
     /* tabpage-local variables */
     FOR_ALL_TABPAGES(tp)
@@ -6096,10 +5836,7 @@ get_env_tv(char_u **arg, typval_T *rettv, int evaluate)
 	    /* next try expanding things like $VIM and ${HOME} */
 	    string = expand_env_save(name - 1);
 	    if (string != NULL && *string == '$')
-	    {
-		vim_free(string);
-		string = NULL;
-	    }
+		VIM_CLEAR(string);
 	}
 	name[len] = cc;
 
@@ -6681,6 +6418,29 @@ set_vcount(
 }
 
 /*
+ * Save variables that might be changed as a side effect.  Used when executing
+ * a timer callback.
+ */
+    void
+save_vimvars(vimvars_save_T *vvsave)
+{
+    vvsave->vv_prevcount = vimvars[VV_PREVCOUNT].vv_nr;
+    vvsave->vv_count = vimvars[VV_COUNT].vv_nr;
+    vvsave->vv_count1 = vimvars[VV_COUNT1].vv_nr;
+}
+
+/*
+ * Restore variables saved by save_vimvars().
+ */
+    void
+restore_vimvars(vimvars_save_T *vvsave)
+{
+    vimvars[VV_PREVCOUNT].vv_nr = vvsave->vv_prevcount;
+    vimvars[VV_COUNT].vv_nr = vvsave->vv_count;
+    vimvars[VV_COUNT1].vv_nr = vvsave->vv_count1;
+}
+
+/*
  * Set string v: variable to a copy of "val".
  */
     void
@@ -6777,7 +6537,6 @@ v_throwpoint(char_u *oldval)
     return NULL;
 }
 
-#if defined(FEAT_AUTOCMD) || defined(PROTO)
 /*
  * Set v:cmdarg.
  * If "eap" != NULL, use "eap" to generate the value and return the old value.
@@ -6810,7 +6569,7 @@ set_cmdarg(exarg_T *eap, char_u *oldarg)
 	len += 7;
 
     if (eap->force_ff != 0)
-	len += (unsigned)STRLEN(eap->cmd + eap->force_ff) + 6;
+	len += 10; /* " ++ff=unix" */
 # ifdef FEAT_MBYTE
     if (eap->force_enc != 0)
 	len += (unsigned)STRLEN(eap->cmd + eap->force_enc) + 7;
@@ -6834,8 +6593,10 @@ set_cmdarg(exarg_T *eap, char_u *oldarg)
 
     if (eap->force_ff != 0)
 	sprintf((char *)newval + STRLEN(newval), " ++ff=%s",
-						eap->cmd + eap->force_ff);
-# ifdef FEAT_MBYTE
+						eap->force_ff == 'u' ? "unix"
+						: eap->force_ff == 'd' ? "dos"
+						: "mac");
+#ifdef FEAT_MBYTE
     if (eap->force_enc != 0)
 	sprintf((char *)newval + STRLEN(newval), " ++enc=%s",
 					       eap->cmd + eap->force_enc);
@@ -6845,15 +6606,14 @@ set_cmdarg(exarg_T *eap, char_u *oldarg)
 	STRCPY(newval + STRLEN(newval), " ++bad=drop");
     else if (eap->bad_char != 0)
 	sprintf((char *)newval + STRLEN(newval), " ++bad=%c", eap->bad_char);
-# endif
+#endif
     vimvars[VV_CMDARG].vv_str = newval;
     return oldval;
 }
-#endif
 
 /*
  * Get the value of internal variable "name".
- * Return OK or FAIL.
+ * Return OK or FAIL.  If OK is returned "rettv" must be cleared.
  */
     int
 get_var_tv(
@@ -7116,8 +6876,7 @@ clear_tv(typval_T *varp)
 		func_unref(varp->vval.v_string);
 		/* FALLTHROUGH */
 	    case VAR_STRING:
-		vim_free(varp->vval.v_string);
-		varp->vval.v_string = NULL;
+		VIM_CLEAR(varp->vval.v_string);
 		break;
 	    case VAR_PARTIAL:
 		partial_unref(varp->vval.v_partial);
@@ -7325,7 +7084,7 @@ get_tv_string_buf_chk(typval_T *varp, char_u *buf)
     {
 	case VAR_NUMBER:
 	    vim_snprintf((char *)buf, NUMBUFLEN, "%lld",
-					    (varnumber_T)varp->vval.v_number);
+					    (long long)varp->vval.v_number);
 	    return buf;
 	case VAR_FUNC:
 	case VAR_PARTIAL:
@@ -8433,7 +8192,7 @@ ex_execute(exarg_T *eap)
     win_T *
 find_win_by_nr(
     typval_T	*vp,
-    tabpage_T	*tp UNUSED)	/* NULL for current tab page */
+    tabpage_T	*tp)	/* NULL for current tab page */
 {
     win_T	*wp;
     int		nr;
@@ -9035,7 +8794,7 @@ assert_error(garray_T *gap)
     list_append_string(vimvars[VV_ERRORS].vv_list, gap->ga_data, gap->ga_len);
 }
 
-    void
+    int
 assert_equal_common(typval_T *argvars, assert_type_T atype)
 {
     garray_T	ga;
@@ -9048,10 +8807,83 @@ assert_equal_common(typval_T *argvars, assert_type_T atype)
 								       atype);
 	assert_error(&ga);
 	ga_clear(&ga);
+	return 1;
     }
+    return 0;
 }
 
-    void
+    int
+assert_equalfile(typval_T *argvars)
+{
+    char_u	buf1[NUMBUFLEN];
+    char_u	buf2[NUMBUFLEN];
+    char_u	*fname1 = get_tv_string_buf_chk(&argvars[0], buf1);
+    char_u	*fname2 = get_tv_string_buf_chk(&argvars[1], buf2);
+    garray_T	ga;
+    FILE	*fd1;
+    FILE	*fd2;
+
+    if (fname1 == NULL || fname2 == NULL)
+	return 0;
+
+    IObuff[0] = NUL;
+    fd1 = mch_fopen((char *)fname1, READBIN);
+    if (fd1 == NULL)
+    {
+	vim_snprintf((char *)IObuff, IOSIZE, (char *)e_notread, fname1);
+    }
+    else
+    {
+	fd2 = mch_fopen((char *)fname2, READBIN);
+	if (fd2 == NULL)
+	{
+	    fclose(fd1);
+	    vim_snprintf((char *)IObuff, IOSIZE, (char *)e_notread, fname2);
+	}
+	else
+	{
+	    int c1, c2;
+	    long count = 0;
+
+	    for (;;)
+	    {
+		c1 = fgetc(fd1);
+		c2 = fgetc(fd2);
+		if (c1 == EOF)
+		{
+		    if (c2 != EOF)
+			STRCPY(IObuff, "first file is shorter");
+		    break;
+		}
+		else if (c2 == EOF)
+		{
+		    STRCPY(IObuff, "second file is shorter");
+		    break;
+		}
+		else if (c1 != c2)
+		{
+		    vim_snprintf((char *)IObuff, IOSIZE,
+					      "difference at byte %ld", count);
+		    break;
+		}
+		++count;
+	    }
+	    fclose(fd1);
+	    fclose(fd2);
+	}
+    }
+    if (IObuff[0] != NUL)
+    {
+	prepare_assert_error(&ga);
+	ga_concat(&ga, IObuff);
+	assert_error(&ga);
+	ga_clear(&ga);
+	return 1;
+    }
+    return 0;
+}
+
+    int
 assert_match_common(typval_T *argvars, assert_type_T atype)
 {
     garray_T	ga;
@@ -9069,10 +8901,12 @@ assert_match_common(typval_T *argvars, assert_type_T atype)
 									atype);
 	assert_error(&ga);
 	ga_clear(&ga);
+	return 1;
     }
+    return 0;
 }
 
-    void
+    int
 assert_inrange(typval_T *argvars)
 {
     garray_T	ga;
@@ -9085,7 +8919,7 @@ assert_inrange(typval_T *argvars)
     char_u	numbuf[NUMBUFLEN];
 
     if (error)
-	return;
+	return 0;
     if (actual < lower || actual > upper)
     {
 	prepare_assert_error(&ga);
@@ -9102,13 +8936,16 @@ assert_inrange(typval_T *argvars)
 	}
 	assert_error(&ga);
 	ga_clear(&ga);
+	return 1;
     }
+    return 0;
 }
 
 /*
  * Common for assert_true() and assert_false().
+ * Return non-zero for failure.
  */
-    void
+    int
 assert_bool(typval_T *argvars, int isTrue)
 {
     int		error = FALSE;
@@ -9116,7 +8953,7 @@ assert_bool(typval_T *argvars, int isTrue)
 
     if (argvars[0].v_type == VAR_SPECIAL
 	    && argvars[0].vval.v_number == (isTrue ? VVAL_TRUE : VVAL_FALSE))
-	return;
+	return 0;
     if (argvars[0].v_type != VAR_NUMBER
 	    || (get_tv_number_chk(&argvars[0], &error) == 0) == isTrue
 	    || error)
@@ -9127,10 +8964,12 @@ assert_bool(typval_T *argvars, int isTrue)
 		NULL, &argvars[0], ASSERT_OTHER);
 	assert_error(&ga);
 	ga_clear(&ga);
+	return 1;
     }
+    return 0;
 }
 
-    void
+    int
 assert_report(typval_T *argvars)
 {
     garray_T	ga;
@@ -9139,9 +8978,10 @@ assert_report(typval_T *argvars)
     ga_concat(&ga, get_tv_string(&argvars[0]));
     assert_error(&ga);
     ga_clear(&ga);
+    return 1;
 }
 
-    void
+    int
 assert_exception(typval_T *argvars)
 {
     garray_T	ga;
@@ -9153,6 +8993,7 @@ assert_exception(typval_T *argvars)
 	ga_concat(&ga, (char_u *)"v:exception is not set");
 	assert_error(&ga);
 	ga_clear(&ga);
+	return 1;
     }
     else if (error != NULL
 	&& strstr((char *)vimvars[VV_EXCEPTION].vv_str, (char *)error) == NULL)
@@ -9162,14 +9003,43 @@ assert_exception(typval_T *argvars)
 				  &vimvars[VV_EXCEPTION].vv_tv, ASSERT_OTHER);
 	assert_error(&ga);
 	ga_clear(&ga);
+	return 1;
     }
+    return 0;
 }
 
-    void
+    int
+assert_beeps(typval_T *argvars)
+{
+    char_u	*cmd = get_tv_string_chk(&argvars[0]);
+    garray_T	ga;
+    int		ret = 0;
+
+    called_vim_beep = FALSE;
+    suppress_errthrow = TRUE;
+    emsg_silent = FALSE;
+    do_cmdline_cmd(cmd);
+    if (!called_vim_beep)
+    {
+	prepare_assert_error(&ga);
+	ga_concat(&ga, (char_u *)"command did not beep: ");
+	ga_concat(&ga, cmd);
+	assert_error(&ga);
+	ga_clear(&ga);
+	ret = 1;
+    }
+
+    suppress_errthrow = FALSE;
+    emsg_on_display = FALSE;
+    return ret;
+}
+
+    int
 assert_fails(typval_T *argvars)
 {
     char_u	*cmd = get_tv_string_chk(&argvars[0]);
     garray_T	ga;
+    int		ret = 0;
 
     called_emsg = FALSE;
     suppress_errthrow = TRUE;
@@ -9182,6 +9052,7 @@ assert_fails(typval_T *argvars)
 	ga_concat(&ga, cmd);
 	assert_error(&ga);
 	ga_clear(&ga);
+	ret = 1;
     }
     else if (argvars[1].v_type != VAR_UNKNOWN)
     {
@@ -9196,6 +9067,7 @@ assert_fails(typval_T *argvars)
 				     &vimvars[VV_ERRMSG].vv_tv, ASSERT_OTHER);
 	    assert_error(&ga);
 	    ga_clear(&ga);
+	ret = 1;
 	}
     }
 
@@ -9204,6 +9076,7 @@ assert_fails(typval_T *argvars)
     emsg_silent = FALSE;
     emsg_on_display = FALSE;
     set_vim_var_string(VV_ERRMSG, NULL, 0);
+    return ret;
 }
 
 /*
@@ -9292,6 +9165,257 @@ fill_assert_error(
     }
 }
 
+/*
+ * Compare "typ1" and "typ2".  Put the result in "typ1".
+ */
+    int
+typval_compare(
+    typval_T	*typ1,   /* first operand */
+    typval_T	*typ2,   /* second operand */
+    exptype_T	type,    /* operator */
+    int		type_is, /* TRUE for "is" and "isnot" */
+    int		ic)      /* ignore case */
+{
+    int		i;
+    varnumber_T	n1, n2;
+    char_u	*s1, *s2;
+    char_u	buf1[NUMBUFLEN], buf2[NUMBUFLEN];
+
+    if (type_is && typ1->v_type != typ2->v_type)
+    {
+	/* For "is" a different type always means FALSE, for "notis"
+	    * it means TRUE. */
+	n1 = (type == TYPE_NEQUAL);
+    }
+    else if (typ1->v_type == VAR_LIST || typ2->v_type == VAR_LIST)
+    {
+	if (type_is)
+	{
+	    n1 = (typ1->v_type == typ2->v_type
+			    && typ1->vval.v_list == typ2->vval.v_list);
+	    if (type == TYPE_NEQUAL)
+		n1 = !n1;
+	}
+	else if (typ1->v_type != typ2->v_type
+		|| (type != TYPE_EQUAL && type != TYPE_NEQUAL))
+	{
+	    if (typ1->v_type != typ2->v_type)
+		EMSG(_("E691: Can only compare List with List"));
+	    else
+		EMSG(_("E692: Invalid operation for List"));
+	    clear_tv(typ1);
+	    return FAIL;
+	}
+	else
+	{
+	    /* Compare two Lists for being equal or unequal. */
+	    n1 = list_equal(typ1->vval.v_list, typ2->vval.v_list,
+							    ic, FALSE);
+	    if (type == TYPE_NEQUAL)
+		n1 = !n1;
+	}
+    }
+
+    else if (typ1->v_type == VAR_DICT || typ2->v_type == VAR_DICT)
+    {
+	if (type_is)
+	{
+	    n1 = (typ1->v_type == typ2->v_type
+			    && typ1->vval.v_dict == typ2->vval.v_dict);
+	    if (type == TYPE_NEQUAL)
+		n1 = !n1;
+	}
+	else if (typ1->v_type != typ2->v_type
+		|| (type != TYPE_EQUAL && type != TYPE_NEQUAL))
+	{
+	    if (typ1->v_type != typ2->v_type)
+		EMSG(_("E735: Can only compare Dictionary with Dictionary"));
+	    else
+		EMSG(_("E736: Invalid operation for Dictionary"));
+	    clear_tv(typ1);
+	    return FAIL;
+	}
+	else
+	{
+	    /* Compare two Dictionaries for being equal or unequal. */
+	    n1 = dict_equal(typ1->vval.v_dict, typ2->vval.v_dict,
+							    ic, FALSE);
+	    if (type == TYPE_NEQUAL)
+		n1 = !n1;
+	}
+    }
+
+    else if (typ1->v_type == VAR_FUNC || typ2->v_type == VAR_FUNC
+	|| typ1->v_type == VAR_PARTIAL || typ2->v_type == VAR_PARTIAL)
+    {
+	if (type != TYPE_EQUAL && type != TYPE_NEQUAL)
+	{
+	    EMSG(_("E694: Invalid operation for Funcrefs"));
+	    clear_tv(typ1);
+	    return FAIL;
+	}
+	if ((typ1->v_type == VAR_PARTIAL
+					&& typ1->vval.v_partial == NULL)
+		|| (typ2->v_type == VAR_PARTIAL
+					&& typ2->vval.v_partial == NULL))
+	    /* when a partial is NULL assume not equal */
+	    n1 = FALSE;
+	else if (type_is)
+	{
+	    if (typ1->v_type == VAR_FUNC && typ2->v_type == VAR_FUNC)
+		/* strings are considered the same if their value is
+		    * the same */
+		n1 = tv_equal(typ1, typ2, ic, FALSE);
+	    else if (typ1->v_type == VAR_PARTIAL
+					&& typ2->v_type == VAR_PARTIAL)
+		n1 = (typ1->vval.v_partial == typ2->vval.v_partial);
+	    else
+		n1 = FALSE;
+	}
+	else
+	    n1 = tv_equal(typ1, typ2, ic, FALSE);
+	if (type == TYPE_NEQUAL)
+	    n1 = !n1;
+    }
+
+#ifdef FEAT_FLOAT
+    /*
+	* If one of the two variables is a float, compare as a float.
+	* When using "=~" or "!~", always compare as string.
+	*/
+    else if ((typ1->v_type == VAR_FLOAT || typ2->v_type == VAR_FLOAT)
+	    && type != TYPE_MATCH && type != TYPE_NOMATCH)
+    {
+	float_T f1, f2;
+
+	if (typ1->v_type == VAR_FLOAT)
+	    f1 = typ1->vval.v_float;
+	else
+	    f1 = get_tv_number(typ1);
+	if (typ2->v_type == VAR_FLOAT)
+	    f2 = typ2->vval.v_float;
+	else
+	    f2 = get_tv_number(typ2);
+	n1 = FALSE;
+	switch (type)
+	{
+	    case TYPE_EQUAL:    n1 = (f1 == f2); break;
+	    case TYPE_NEQUAL:   n1 = (f1 != f2); break;
+	    case TYPE_GREATER:  n1 = (f1 > f2); break;
+	    case TYPE_GEQUAL:   n1 = (f1 >= f2); break;
+	    case TYPE_SMALLER:  n1 = (f1 < f2); break;
+	    case TYPE_SEQUAL:   n1 = (f1 <= f2); break;
+	    case TYPE_UNKNOWN:
+	    case TYPE_MATCH:
+	    case TYPE_NOMATCH:  break;  /* avoid gcc warning */
+	}
+    }
+#endif
+
+    /*
+	* If one of the two variables is a number, compare as a number.
+	* When using "=~" or "!~", always compare as string.
+	*/
+    else if ((typ1->v_type == VAR_NUMBER || typ2->v_type == VAR_NUMBER)
+	    && type != TYPE_MATCH && type != TYPE_NOMATCH)
+    {
+	n1 = get_tv_number(typ1);
+	n2 = get_tv_number(typ2);
+	switch (type)
+	{
+	    case TYPE_EQUAL:    n1 = (n1 == n2); break;
+	    case TYPE_NEQUAL:   n1 = (n1 != n2); break;
+	    case TYPE_GREATER:  n1 = (n1 > n2); break;
+	    case TYPE_GEQUAL:   n1 = (n1 >= n2); break;
+	    case TYPE_SMALLER:  n1 = (n1 < n2); break;
+	    case TYPE_SEQUAL:   n1 = (n1 <= n2); break;
+	    case TYPE_UNKNOWN:
+	    case TYPE_MATCH:
+	    case TYPE_NOMATCH:  break;  /* avoid gcc warning */
+	}
+    }
+    else
+    {
+	s1 = get_tv_string_buf(typ1, buf1);
+	s2 = get_tv_string_buf(typ2, buf2);
+	if (type != TYPE_MATCH && type != TYPE_NOMATCH)
+	    i = ic ? MB_STRICMP(s1, s2) : STRCMP(s1, s2);
+	else
+	    i = 0;
+	n1 = FALSE;
+	switch (type)
+	{
+	    case TYPE_EQUAL:    n1 = (i == 0); break;
+	    case TYPE_NEQUAL:   n1 = (i != 0); break;
+	    case TYPE_GREATER:  n1 = (i > 0); break;
+	    case TYPE_GEQUAL:   n1 = (i >= 0); break;
+	    case TYPE_SMALLER:  n1 = (i < 0); break;
+	    case TYPE_SEQUAL:   n1 = (i <= 0); break;
+
+	    case TYPE_MATCH:
+	    case TYPE_NOMATCH:
+		    n1 = pattern_match(s2, s1, ic);
+		    if (type == TYPE_NOMATCH)
+			n1 = !n1;
+		    break;
+
+	    case TYPE_UNKNOWN:  break;  /* avoid gcc warning */
+	}
+    }
+    clear_tv(typ1);
+    typ1->v_type = VAR_NUMBER;
+    typ1->vval.v_number = n1;
+
+    return OK;
+}
+
+    char_u *
+typval_tostring(typval_T *arg)
+{
+    char_u	*tofree;
+    char_u	numbuf[NUMBUFLEN];
+    char_u	*ret = NULL;
+
+    if (arg == NULL)
+	return vim_strsave((char_u *)"(does not exist)");
+    ret = tv2string(arg, &tofree, numbuf, 0);
+    /* Make a copy if we have a value but it's not in allocated memory. */
+    if (ret != NULL && tofree == NULL)
+	ret = vim_strsave(ret);
+    return ret;
+}
+
+    int
+var_exists(char_u *var)
+{
+    char_u	*name;
+    char_u	*tofree;
+    typval_T    tv;
+    int		len = 0;
+    int		n = FALSE;
+
+    /* get_name_len() takes care of expanding curly braces */
+    name = var;
+    len = get_name_len(&var, &tofree, TRUE, FALSE);
+    if (len > 0)
+    {
+	if (tofree != NULL)
+	    name = tofree;
+	n = (get_var_tv(name, len, &tv, NULL, FALSE, TRUE) == OK);
+	if (n)
+	{
+	    /* handle d.key, l[idx], f(expr) */
+	    n = (handle_subscript(&var, &tv, TRUE, FALSE) == OK);
+	    if (n)
+		clear_tv(&tv);
+	}
+    }
+    if (*var != NUL)
+	n = FALSE;
+
+    vim_free(tofree);
+    return n;
+}
 
 #endif /* FEAT_EVAL */
 
@@ -9549,11 +9673,12 @@ shortpath_for_partial(
  */
     int
 modify_fname(
-    char_u	*src,		/* string with modifiers */
-    int		*usedlen,	/* characters after src that are used */
-    char_u	**fnamep,	/* file name so far */
-    char_u	**bufp,		/* buffer for allocated file name or NULL */
-    int		*fnamelen)	/* length of fnamep */
+    char_u	*src,		// string with modifiers
+    int		tilde_file,	// "~" is a file name, not $HOME
+    int		*usedlen,	// characters after src that are used
+    char_u	**fnamep,	// file name so far
+    char_u	**bufp,		// buffer for allocated file name or NULL
+    int		*fnamelen)	// length of fnamep
 {
     int		valid = 0;
     char_u	*tail;
@@ -9583,8 +9708,8 @@ repeat:
 		    || (*fnamep)[1] == '\\'
 # endif
 		    || (*fnamep)[1] == NUL)
-
 #endif
+		&& !(tilde_file && (*fnamep)[1] == NUL)
 	   )
 	{
 	    *fnamep = expand_env_save(*fnamep);

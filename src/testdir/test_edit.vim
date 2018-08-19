@@ -527,7 +527,7 @@ func! Test_edit_CTRL_I()
   " Tab in completion mode
   let path=expand("%:p:h")
   new
-  call setline(1, [path."/", ''])
+  call setline(1, [path. "/", ''])
   call feedkeys("Arunt\<c-x>\<c-f>\<tab>\<cr>\<esc>", 'tnix')
   call assert_match('runtest\.vim', getline(1))
   %d
@@ -631,11 +631,11 @@ func! Test_edit_CTRL_L()
   call feedkeys("cct\<c-x>\<c-l>\<c-n>\<esc>", 'tnix')
   call assert_equal(['one', 'two', 'three', 't', '', '', ''], getline(1, '$'))
   call feedkeys("cct\<c-x>\<c-l>\<c-n>\<c-n>\<esc>", 'tnix')
-  call assert_equal(['one', 'two', 'three', 't', '', '', ''], getline(1, '$'))
-  call feedkeys("cct\<c-x>\<c-l>\<c-n>\<c-n>\<c-n>\<esc>", 'tnix')
   call assert_equal(['one', 'two', 'three', 'two', '', '', ''], getline(1, '$'))
-  call feedkeys("cct\<c-x>\<c-l>\<c-n>\<c-n>\<c-n>\<c-n>\<esc>", 'tnix')
+  call feedkeys("cct\<c-x>\<c-l>\<c-n>\<c-n>\<c-n>\<esc>", 'tnix')
   call assert_equal(['one', 'two', 'three', 'three', '', '', ''], getline(1, '$'))
+  call feedkeys("cct\<c-x>\<c-l>\<c-n>\<c-n>\<c-n>\<c-n>\<esc>", 'tnix')
+  call assert_equal(['one', 'two', 'three', 't', '', '', ''], getline(1, '$'))
   call feedkeys("cct\<c-x>\<c-l>\<c-p>\<esc>", 'tnix')
   call assert_equal(['one', 'two', 'three', 'two', '', '', ''], getline(1, '$'))
   call feedkeys("cct\<c-x>\<c-l>\<c-p>\<c-p>\<esc>", 'tnix')
@@ -1357,7 +1357,6 @@ func Test_edit_complete_very_long_name()
   let save_columns = &columns
   " Need at least about 1100 columns to reproduce the problem.
   set columns=2000
-  call assert_equal(2000, &columns)
   set noswapfile
 
   let longfilename = longdirname . '/' . repeat('a', 255)
@@ -1376,6 +1375,14 @@ func Test_edit_complete_very_long_name()
   set swapfile&
 endfunc
 
+func Test_edit_backtick()
+  next a\`b c
+  call assert_equal('a`b', expand('%'))
+  next
+  call assert_equal('c', expand('%'))
+  call assert_equal('a\`b c', expand('##'))
+endfunc
+
 func Test_edit_quit()
   edit foo.txt
   split
@@ -1388,3 +1395,17 @@ func Test_edit_quit()
   only
 endfunc
 
+func Test_edit_alt()
+  " Keeping the cursor line didn't happen when the first line has indent.
+  new
+  call setline(1, ['  one', 'two', 'three'])
+  w XAltFile
+  $
+  call assert_equal(3, line('.'))
+  e Xother
+  e #
+  call assert_equal(3, line('.'))
+
+  bwipe XAltFile
+  call delete('XAltFile')
+endfunc

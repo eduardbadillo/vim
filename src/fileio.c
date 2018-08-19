@@ -47,14 +47,12 @@ static int msg_add_fileformat(int eol_type);
 static void msg_add_eol(void);
 static int check_mtime(buf_T *buf, stat_T *s);
 static int time_differs(long t1, long t2);
-#ifdef FEAT_AUTOCMD
 static int apply_autocmds_exarg(event_T event, char_u *fname, char_u *fname_io, int force, buf_T *buf, exarg_T *eap);
 static int au_find_group(char_u *name);
 
 # define AUGROUP_DEFAULT    -1	    /* default autocmd group */
 # define AUGROUP_ERROR	    -2	    /* erroneous autocmd group */
 # define AUGROUP_ALL	    -3	    /* all autocmd groups */
-#endif
 
 #if defined(FEAT_CRYPT) || defined(FEAT_MBYTE)
 # define HAS_BW_FLAGS
@@ -135,11 +133,8 @@ static int move_lines(buf_T *frombuf, buf_T *tobuf);
 #ifdef TEMPDIRNAMES
 static void vim_settempdir(char_u *tempdir);
 #endif
-#ifdef FEAT_AUTOCMD
 static char *e_auchangedbuf = N_("E812: Autocommands changed buffer or buffer name");
-#endif
 
-#ifdef FEAT_AUTOCMD
 /*
  * Set by the apply_autocmds_group function if the given event is equal to
  * EVENT_FILETYPE. Used by the readfile function in order to determine if
@@ -149,7 +144,6 @@ static char *e_auchangedbuf = N_("E812: Autocommands changed buffer or buffer na
  * apply_autocmds_group.
  */
 static int au_did_filetype INIT(= FALSE);
-#endif
 
     void
 filemess(
@@ -307,17 +301,13 @@ readfile(
     char_u	conv_rest[CONV_RESTLEN];
     int		conv_restlen = 0;	/* nr of bytes in conv_rest[] */
 #endif
-#ifdef FEAT_AUTOCMD
     buf_T	*old_curbuf;
     char_u	*old_b_ffname;
     char_u	*old_b_fname;
     int		using_b_ffname;
     int		using_b_fname;
-#endif
 
-#ifdef FEAT_AUTOCMD
     au_did_filetype = FALSE; /* reset before triggering any autocommands */
-#endif
 
     curbuf->b_no_eol_lnum = 0;	/* in case it was set by the previous read */
 
@@ -337,7 +327,6 @@ readfile(
 	    return FAIL;
     }
 
-#ifdef FEAT_AUTOCMD
     /* Remember the initial values of curbuf, curbuf->b_ffname and
      * curbuf->b_fname to detect whether they are altered as a result of
      * executing nasty autocommands.  Also check if "fname" and "sfname"
@@ -348,7 +337,6 @@ readfile(
     using_b_ffname = (fname == curbuf->b_ffname)
 					      || (sfname == curbuf->b_ffname);
     using_b_fname = (fname == curbuf->b_fname) || (sfname == curbuf->b_fname);
-#endif
 
     /* After reading a file the cursor line changes but we don't want to
      * display the line. */
@@ -369,7 +357,6 @@ readfile(
     fname = sfname;
 #endif
 
-#ifdef FEAT_AUTOCMD
     /*
      * The BufReadCmd and FileReadCmd events intercept the reading process by
      * executing the associated commands instead.
@@ -404,7 +391,6 @@ readfile(
 
 	curbuf->b_op_start = pos;
     }
-#endif
 
     if ((shortmess(SHM_OVER) || curbuf->b_help) && p_verbose == 0)
 	msg_scroll = FALSE;	/* overwrite previous file message */
@@ -438,12 +424,8 @@ readfile(
 	 */
 	perm = mch_getperm(fname);
 	if (perm >= 0 && !S_ISREG(perm)		    /* not a regular file ... */
-# ifdef S_ISFIFO
 		      && !S_ISFIFO(perm)	    /* ... or fifo */
-# endif
-# ifdef S_ISSOCK
 		      && !S_ISSOCK(perm)	    /* ... or socket */
-# endif
 # ifdef OPEN_CHR_FILES
 		      && !(S_ISCHR(perm) && is_dev_fd_file(fname))
 			/* ... or a character special file named /dev/fd/<n> */
@@ -613,7 +595,6 @@ readfile(
 #endif
 		    {
 			check_need_swap(newfile);
-#ifdef FEAT_AUTOCMD
 			/* SwapExists autocommand may mess things up */
 			if (curbuf != old_curbuf
 				|| (using_b_ffname
@@ -624,7 +605,6 @@ readfile(
 			    EMSG(_(e_auchangedbuf));
 			    return FAIL;
 			}
-#endif
 		    }
 		    if (dir_of_file_exists(fname))
 			filemess(curbuf, sfname, (char_u *)_("[New File]"), 0);
@@ -641,14 +621,12 @@ readfile(
 		    if (eap != NULL)
 			set_forced_fenc(eap);
 #endif
-#ifdef FEAT_AUTOCMD
 		    apply_autocmds_exarg(EVENT_BUFNEWFILE, sfname, sfname,
 							  FALSE, curbuf, eap);
-#endif
 		    /* remember the current fileformat */
 		    save_file_ff(curbuf);
 
-#if defined(FEAT_AUTOCMD) && defined(FEAT_EVAL)
+#if defined(FEAT_EVAL)
 		    if (aborting())   /* autocmds may abort script processing */
 			return FAIL;
 #endif
@@ -701,7 +679,6 @@ readfile(
 #endif
     {
 	check_need_swap(newfile);
-#ifdef FEAT_AUTOCMD
 	if (!read_stdin && (curbuf != old_curbuf
 		|| (using_b_ffname && (old_b_ffname != curbuf->b_ffname))
 		|| (using_b_fname && (old_b_fname != curbuf->b_fname))))
@@ -711,7 +688,6 @@ readfile(
 		close(fd);
 	    return FAIL;
 	}
-#endif
 #ifdef UNIX
 	/* Set swap file protection bits after creating it. */
 	if (swap_mode > 0 && curbuf->b_ml.ml_mfp != NULL
@@ -732,8 +708,11 @@ readfile(
 
 		if (mch_stat((char *)swap_fname, &swap_st) >= 0
 			&& st.st_gid != swap_st.st_gid
+# ifdef HAVE_FCHOWN
 			&& fchown(curbuf->b_ml.ml_mfp->mf_fd, -1, st.st_gid)
-									 == -1)
+									  == -1
+# endif
+		   )
 		    swap_mode &= 0600;
 	    }
 
@@ -764,7 +743,6 @@ readfile(
     try_dos = (vim_strchr(p_ffs, 'd') != NULL);
     try_unix = (vim_strchr(p_ffs, 'x') != NULL);
 
-#ifdef FEAT_AUTOCMD
     if (!read_buffer)
     {
 	int	m = msg_scroll;
@@ -834,7 +812,6 @@ readfile(
 	    return FAIL;
 	}
     }
-#endif /* FEAT_AUTOCMD */
 
     /* Autocommands may add lines to the file, need to check if it is empty */
     wasempty = (curbuf->b_ml.ml_flags & ML_EMPTY);
@@ -1073,8 +1050,7 @@ retry:
 	if (tmpname != NULL)
 	{
 	    mch_remove(tmpname);		/* delete converted file */
-	    vim_free(tmpname);
-	    tmpname = NULL;
+	    VIM_CLEAR(tmpname);
 	}
     }
 
@@ -1229,28 +1205,42 @@ retry:
 	 * The amount is limited by the fact that read() only can read
 	 * upto max_unsigned characters (and other things).
 	 */
+	if (!skip_read)
+	{
+#if VIM_SIZEOF_INT > 2
+# if defined(SSIZE_MAX) && (SSIZE_MAX < 0x10000L)
+		size = SSIZE_MAX;		    /* use max I/O size, 52K */
+# else
+		/* Use buffer >= 64K.  Add linerest to double the size if the
+		 * line gets very long, to avoid a lot of copying. But don't
+		 * read more than 1 Mbyte at a time, so we can be interrupted.
+		 */
+		size = 0x10000L + linerest;
+		if (size > 0x100000L)
+		    size = 0x100000L;
+# endif
+#else
+		size = 0x7ff0L - linerest;	    /* limit buffer to 32K */
+#endif
+	}
+
+	/* Protect against the argument of lalloc() going negative. */
+	if (
 #if VIM_SIZEOF_INT <= 2
-	if (linerest >= 0x7ff0)
+	    linerest >= 0x7ff0
+#else
+	    size < 0 || size + linerest + 1 < 0 || linerest >= MAXCOL
+#endif
+	   )
 	{
 	    ++split;
 	    *ptr = NL;		    /* split line by inserting a NL */
 	    size = 1;
 	}
 	else
-#endif
 	{
 	    if (!skip_read)
 	    {
-#if VIM_SIZEOF_INT > 2
-# if defined(SSIZE_MAX) && (SSIZE_MAX < 0x10000L)
-		size = SSIZE_MAX;		    /* use max I/O size, 52K */
-# else
-		size = 0x10000L;		    /* use buffer >= 64K */
-# endif
-#else
-		size = 0x7ff0L - linerest;	    /* limit buffer to 32K */
-#endif
-
 		for ( ; size >= 10; size = (long)((long_u)size >> 1))
 		{
 		    if ((new_buffer = lalloc((long_u)(size + linerest + 1),
@@ -1412,7 +1402,7 @@ retry:
 
 			/* If the crypt layer is buffering, not producing
 			 * anything yet, need to read more. */
-			if (size > 0 && decrypted_size == 0)
+			if (decrypted_size == 0)
 			    continue;
 
 			if (linerest == 0)
@@ -2503,28 +2493,16 @@ failed:
 	    c = FALSE;
 
 #ifdef UNIX
-# ifdef S_ISFIFO
-	    if (S_ISFIFO(perm))			    /* fifo or socket */
-	    {
-		STRCAT(IObuff, _("[fifo/socket]"));
-		c = TRUE;
-	    }
-# else
-#  ifdef S_IFIFO
-	    if ((perm & S_IFMT) == S_IFIFO)	    /* fifo */
+	    if (S_ISFIFO(perm))			    /* fifo */
 	    {
 		STRCAT(IObuff, _("[fifo]"));
 		c = TRUE;
 	    }
-#  endif
-#  ifdef S_IFSOCK
-	    if ((perm & S_IFMT) == S_IFSOCK)	    /* or socket */
+	    if (S_ISSOCK(perm))			    /* or socket */
 	    {
 		STRCAT(IObuff, _("[socket]"));
 		c = TRUE;
 	    }
-#  endif
-# endif
 # ifdef OPEN_CHR_FILES
 	    if (S_ISCHR(perm))			    /* or character special */
 	    {
@@ -2602,8 +2580,7 @@ failed:
 #endif
 		msg_add_lines(c, (long)linecnt, filesize);
 
-	    vim_free(keep_msg);
-	    keep_msg = NULL;
+	    VIM_CLEAR(keep_msg);
 	    msg_scrolled_ign = TRUE;
 #ifdef ALWAYS_USE_GUI
 	    /* Don't show the message when reading stdin, it would end up in a
@@ -2706,7 +2683,6 @@ failed:
     }
 #endif
 
-#ifdef FEAT_AUTOCMD
     if (!read_stdin && !read_fifo && (!read_buffer || sfname != NULL))
     {
 	int m = msg_scroll;
@@ -2748,7 +2724,6 @@ failed:
 	    return FAIL;
 # endif
     }
-#endif
 
     if (recoverymode && error)
 	return FAIL;
@@ -2805,22 +2780,22 @@ readfile_linenr(
     int
 prep_exarg(exarg_T *eap, buf_T *buf)
 {
-    eap->cmd = alloc((unsigned)(STRLEN(buf->b_p_ff)
+    eap->cmd = alloc(15
 #ifdef FEAT_MBYTE
-		+ STRLEN(buf->b_p_fenc)
+		+ (unsigned)STRLEN(buf->b_p_fenc)
 #endif
-						 + 15));
+	    );
     if (eap->cmd == NULL)
 	return FAIL;
 
 #ifdef FEAT_MBYTE
-    sprintf((char *)eap->cmd, "e ++ff=%s ++enc=%s", buf->b_p_ff, buf->b_p_fenc);
-    eap->force_enc = 14 + (int)STRLEN(buf->b_p_ff);
+    sprintf((char *)eap->cmd, "e ++enc=%s", buf->b_p_fenc);
+    eap->force_enc = 8;
     eap->bad_char = buf->b_bad_char;
 #else
-    sprintf((char *)eap->cmd, "e ++ff=%s", buf->b_p_ff);
+    sprintf((char *)eap->cmd, "e");
 #endif
-    eap->force_ff = 7;
+    eap->force_ff = *buf->b_p_ff;
 
     eap->force_bin = buf->b_p_bin ? FORCE_BIN : FORCE_NOBIN;
     eap->read_edit = FALSE;
@@ -2955,8 +2930,7 @@ readfile_charconvert(
 	if (tmpname != NULL)
 	{
 	    mch_remove(tmpname);	/* delete converted file */
-	    vim_free(tmpname);
-	    tmpname = NULL;
+	    VIM_CLEAR(tmpname);
 	}
     }
 
@@ -3200,9 +3174,7 @@ buf_write(
 #endif
 					/* writing everything */
     int		    whole = (start == 1 && end == buf->b_ml.ml_line_count);
-#ifdef FEAT_AUTOCMD
     linenr_T	    old_line_count = buf->b_ml.ml_line_count;
-#endif
     int		    attr;
     int		    fileformat;
     int		    write_bin;
@@ -3322,7 +3294,6 @@ buf_write(
     buf->b_op_end.lnum = end;
     buf->b_op_end.col = 0;
 
-#ifdef FEAT_AUTOCMD
     {
 	aco_save_T	aco;
 	int		buf_ffname = FALSE;
@@ -3512,7 +3483,6 @@ buf_write(
 	if (buf_fname_s)
 	    fname = buf->b_sfname;
     }
-#endif
 
 #ifdef FEAT_NETBEANS_INTG
     if (netbeans_active() && isNetbeansBuffer(buf))
@@ -3864,6 +3834,9 @@ buf_write(
 	    stat_T	st_new;
 	    char_u	*dirp;
 	    char_u	*rootname;
+#if defined(UNIX) || defined(WIN3264)
+	    char_u      *p;
+#endif
 #if defined(UNIX)
 	    int		did_set_shortname;
 	    mode_t	umask_save;
@@ -3901,6 +3874,17 @@ buf_write(
 		 * Isolate one directory name, using an entry in 'bdir'.
 		 */
 		(void)copy_option_part(&dirp, copybuf, BUFSIZE, ",");
+
+#if defined(UNIX) || defined(WIN3264)
+		p = copybuf + STRLEN(copybuf);
+		if (after_pathsep(copybuf, p) && p[-1] == p[-2])
+		    // Ends with '//', use full path
+		    if ((p = make_percent_swname(copybuf, fname)) != NULL)
+		    {
+			backup = modname(p, backup_ext, FALSE);
+			vim_free(p);
+		    }
+#endif
 		rootname = get_file_in_dir(fname, copybuf);
 		if (rootname == NULL)
 		{
@@ -3918,9 +3902,10 @@ buf_write(
 		for (;;)
 		{
 		    /*
-		     * Make backup file name.
+		     * Make the backup file name.
 		     */
-		    backup = buf_modname((buf->b_p_sn || buf->b_shortname),
+		    if (backup == NULL)
+			backup = buf_modname((buf->b_p_sn || buf->b_shortname),
 						 rootname, backup_ext, FALSE);
 		    if (backup == NULL)
 		    {
@@ -3945,8 +3930,7 @@ buf_write(
 			if (st_new.st_dev == st_old.st_dev
 					    && st_new.st_ino == st_old.st_ino)
 			{
-			    vim_free(backup);
-			    backup = NULL;	/* no backup file to delete */
+			    VIM_CLEAR(backup);	/* no backup file to delete */
 			    /*
 			     * may try again with 'shortname' set
 			     */
@@ -3980,10 +3964,7 @@ buf_write(
 				--*wp;
 			    /* They all exist??? Must be something wrong. */
 			    if (*wp == 'a')
-			    {
-				vim_free(backup);
-				backup = NULL;
-			    }
+				VIM_CLEAR(backup);
 			}
 		    }
 		    break;
@@ -4010,10 +3991,7 @@ buf_write(
 		    (void)umask(umask_save);
 #endif
 		    if (bfd < 0)
-		    {
-			vim_free(backup);
-			backup = NULL;
-		    }
+			VIM_CLEAR(backup);
 		    else
 		    {
 			/* Set file protection same as original file, but
@@ -4129,14 +4107,29 @@ buf_write(
 		 * Isolate one directory name and make the backup file name.
 		 */
 		(void)copy_option_part(&dirp, IObuff, IOSIZE, ",");
-		rootname = get_file_in_dir(fname, IObuff);
-		if (rootname == NULL)
-		    backup = NULL;
-		else
+
+#if defined(UNIX) || defined(WIN3264)
+		p = IObuff + STRLEN(IObuff);
+		if (after_pathsep(IObuff, p) && p[-1] == p[-2])
+		    // path ends with '//', use full path
+		    if ((p = make_percent_swname(IObuff, fname)) != NULL)
+		    {
+			backup = modname(p, backup_ext, FALSE);
+			vim_free(p);
+		    }
+#endif
+		if (backup == NULL)
 		{
-		    backup = buf_modname((buf->b_p_sn || buf->b_shortname),
-						 rootname, backup_ext, FALSE);
-		    vim_free(rootname);
+		    rootname = get_file_in_dir(fname, IObuff);
+		    if (rootname == NULL)
+			backup = NULL;
+		    else
+		    {
+			backup = buf_modname(
+				(buf->b_p_sn || buf->b_shortname),
+						rootname, backup_ext, FALSE);
+			vim_free(rootname);
+		    }
 		}
 
 		if (backup != NULL)
@@ -4156,10 +4149,7 @@ buf_write(
 			    --*p;
 			/* They all exist??? Must be something wrong! */
 			if (*p == 'a')
-			{
-			    vim_free(backup);
-			    backup = NULL;
-			}
+			    VIM_CLEAR(backup);
 		    }
 		}
 		if (backup != NULL)
@@ -4177,8 +4167,7 @@ buf_write(
 		    if (vim_rename(fname, backup) == 0)
 			break;
 
-		    vim_free(backup);   /* don't do the rename below */
-		    backup = NULL;
+		    VIM_CLEAR(backup);   /* don't do the rename below */
 		}
 	    }
 	    if (backup == NULL && !forceit)
@@ -5034,13 +5023,10 @@ restore_backup:
 	    )
     {
 	unchanged(buf, TRUE);
-#ifdef FEAT_AUTOCMD
 	/* b:changedtick is always incremented in unchanged() but that
 	 * should not trigger a TextChanged event. */
-	if (last_changedtick + 1 == CHANGEDTICK(buf)
-					       && last_changedtick_buf == buf)
-	    last_changedtick = CHANGEDTICK(buf);
-#endif
+	if (buf->b_last_changedtick + 1 == CHANGEDTICK(buf))
+	    buf->b_last_changedtick = CHANGEDTICK(buf);
 	u_unchanged(buf);
 	u_update_save_nr(buf);
     }
@@ -5080,8 +5066,7 @@ restore_backup:
 	    else if (mch_stat(org, &st) < 0)
 	    {
 		vim_rename(backup, (char_u *)org);
-		vim_free(backup);	    /* don't delete the file */
-		backup = NULL;
+		VIM_CLEAR(backup);	    /* don't delete the file */
 #ifdef UNIX
 		set_file_time((char_u *)org, st_old.st_atime, st_old.st_mtime);
 #endif
@@ -5210,7 +5195,6 @@ nofail:
     }
 #endif
 
-#ifdef FEAT_AUTOCMD
 #ifdef FEAT_EVAL
     if (!should_abort(retval))
 #else
@@ -5248,7 +5232,6 @@ nofail:
 	    retval = FALSE;
 #endif
     }
-#endif
 
     got_int |= prev_got_int;
 
@@ -5262,37 +5245,34 @@ nofail:
     static int
 set_rw_fname(char_u *fname, char_u *sfname)
 {
-#ifdef FEAT_AUTOCMD
     buf_T	*buf = curbuf;
 
     /* It's like the unnamed buffer is deleted.... */
     if (curbuf->b_p_bl)
 	apply_autocmds(EVENT_BUFDELETE, NULL, NULL, FALSE, curbuf);
     apply_autocmds(EVENT_BUFWIPEOUT, NULL, NULL, FALSE, curbuf);
-# ifdef FEAT_EVAL
+#ifdef FEAT_EVAL
     if (aborting())	    /* autocmds may abort script processing */
 	return FAIL;
-# endif
+#endif
     if (curbuf != buf)
     {
 	/* We are in another buffer now, don't do the renaming. */
 	EMSG(_(e_auchangedbuf));
 	return FAIL;
     }
-#endif
 
     if (setfname(curbuf, fname, sfname, FALSE) == OK)
 	curbuf->b_flags |= BF_NOTEDITED;
 
-#ifdef FEAT_AUTOCMD
     /* ....and a new named one is created */
     apply_autocmds(EVENT_BUFNEW, NULL, NULL, FALSE, curbuf);
     if (curbuf->b_p_bl)
 	apply_autocmds(EVENT_BUFADD, NULL, NULL, FALSE, curbuf);
-# ifdef FEAT_EVAL
+#ifdef FEAT_EVAL
     if (aborting())	    /* autocmds may abort script processing */
 	return FAIL;
-# endif
+#endif
 
     /* Do filetype detection now if 'filetype' is empty. */
     if (*curbuf->b_p_ft == NUL)
@@ -5301,7 +5281,6 @@ set_rw_fname(char_u *fname, char_u *sfname)
 	    (void)do_doautocmd((char_u *)"filetypedetect BufRead", FALSE, NULL);
 	do_modelines(0);
     }
-#endif
 
     return OK;
 }
@@ -5367,7 +5346,7 @@ msg_add_lines(
 	*p++ = ' ';
     if (shortmess(SHM_LINES))
 	vim_snprintf((char *)p, IOSIZE - (p - IObuff),
-		"%ldL, %lldC", lnum, (varnumber_T)nchars);
+		"%ldL, %lldC", lnum, (long long)nchars);
     else
     {
 	if (lnum == 1)
@@ -5379,7 +5358,7 @@ msg_add_lines(
 	    STRCPY(p, _("1 character"));
 	else
 	    vim_snprintf((char *)p, IOSIZE - (p - IObuff),
-		    _("%lld characters"), (varnumber_T)nchars);
+		    _("%lld characters"), (long long)nchars);
     }
 }
 
@@ -6121,8 +6100,6 @@ make_bom(char_u *buf, char_u *name)
 }
 #endif
 
-#if defined(FEAT_VIMINFO) || defined(FEAT_BROWSE) || \
-    defined(FEAT_QUICKFIX) || defined(FEAT_AUTOCMD) || defined(PROTO)
 /*
  * Try to find a shortname by comparing the fullname with the current
  * directory.
@@ -6146,7 +6123,6 @@ shorten_fname1(char_u *full_path)
     vim_free(dirname);
     return p;
 }
-#endif
 
 /*
  * Try to find a shortname by comparing the fullname with the current
@@ -6201,7 +6177,7 @@ shorten_fname(char_u *full_path, char_u *dir_name)
 }
 
 /*
- * Shorten filenames for all buffers.
+ * Shorten filename of a buffer.
  * When "force" is TRUE: Use full path from now on for files currently being
  * edited, both for file name and swap file name.  Try to shorten the file
  * names a bit, if safe to do so.
@@ -6210,35 +6186,44 @@ shorten_fname(char_u *full_path, char_u *dir_name)
  * name.
  */
     void
+shorten_buf_fname(buf_T *buf, char_u *dirname, int force)
+{
+    char_u	*p;
+
+    if (buf->b_fname != NULL
+#ifdef FEAT_QUICKFIX
+	    && !bt_nofile(buf)
+#endif
+	    && !path_with_url(buf->b_fname)
+	    && (force
+		|| buf->b_sfname == NULL
+		|| mch_isFullName(buf->b_sfname)))
+    {
+	VIM_CLEAR(buf->b_sfname);
+	p = shorten_fname(buf->b_ffname, dirname);
+	if (p != NULL)
+	{
+	    buf->b_sfname = vim_strsave(p);
+	    buf->b_fname = buf->b_sfname;
+	}
+	if (p == NULL || buf->b_fname == NULL)
+	    buf->b_fname = buf->b_ffname;
+    }
+}
+
+/*
+ * Shorten filenames for all buffers.
+ */
+    void
 shorten_fnames(int force)
 {
     char_u	dirname[MAXPATHL];
     buf_T	*buf;
-    char_u	*p;
 
     mch_dirname(dirname, MAXPATHL);
     FOR_ALL_BUFFERS(buf)
     {
-	if (buf->b_fname != NULL
-#ifdef FEAT_QUICKFIX
-		&& !bt_nofile(buf)
-#endif
-		&& !path_with_url(buf->b_fname)
-		&& (force
-		    || buf->b_sfname == NULL
-		    || mch_isFullName(buf->b_sfname)))
-	{
-	    vim_free(buf->b_sfname);
-	    buf->b_sfname = NULL;
-	    p = shorten_fname(buf->b_ffname, dirname);
-	    if (p != NULL)
-	    {
-		buf->b_sfname = vim_strsave(p);
-		buf->b_fname = buf->b_sfname;
-	    }
-	    if (p == NULL || buf->b_fname == NULL)
-		buf->b_fname = buf->b_ffname;
-	}
+	shorten_buf_fname(buf, dirname, force);
 
 	/* Always make the swap file name a full path, a "nofile" buffer may
 	 * also have a swap file. */
@@ -6281,7 +6266,7 @@ shorten_filenames(char_u **fnames, int count)
 #endif
 
 /*
- * add extension to file name - change path/fo.o.h to path/fo.o.h.ext or
+ * Add extension to file name - change path/fo.o.h to path/fo.o.h.ext or
  * fo_o_h.ext for MSDOS or when shortname option set.
  *
  * Assumed that fname is a valid name found in the filesystem we assure that
@@ -6798,10 +6783,7 @@ check_timestamps(
     }
 
     if (!stuff_empty() || global_busy || !typebuf_typed()
-#ifdef FEAT_AUTOCMD
-			|| autocmd_busy || curbuf_lock > 0 || allbuf_lock > 0
-#endif
-					)
+			|| autocmd_busy || curbuf_lock > 0 || allbuf_lock > 0)
 	need_check_timestamps = TRUE;		/* check later */
     else
     {
@@ -6915,25 +6897,23 @@ buf_check_timestamp(
 #ifdef FEAT_GUI
     int		save_mouse_correct = need_mouse_correct;
 #endif
-#ifdef FEAT_AUTOCMD
     static int	busy = FALSE;
     int		n;
+#ifdef FEAT_EVAL
     char_u	*s;
+#endif
     bufref_T	bufref;
 
     set_bufref(&bufref, buf);
-#endif
 
     /* If there is no file name, the buffer is not loaded, 'buftype' is
      * set, we are in the middle of a save or being called recursively: ignore
      * this buffer. */
     if (buf->b_ffname == NULL
 	    || buf->b_ml.ml_mfp == NULL
-	    || *buf->b_p_bt != NUL
+	    || !bt_normal(buf)
 	    || buf->b_saving
-#ifdef FEAT_AUTOCMD
 	    || busy
-#endif
 #ifdef FEAT_NETBEANS_INTG
 	    || isNetbeansBuffer(buf)
 #endif
@@ -6957,11 +6937,13 @@ buf_check_timestamp(
     {
 	retval = 1;
 
-	/* set b_mtime to stop further warnings (e.g., when executing
-	 * FileChangedShell autocmd) */
+	// set b_mtime to stop further warnings (e.g., when executing
+	// FileChangedShell autocmd)
 	if (stat_res < 0)
 	{
-	    buf->b_mtime = 0;
+	    // When 'autoread' is set we'll check the file again to see if it
+	    // re-appears.
+	    buf->b_mtime = buf->b_p_ar;
 	    buf->b_orig_size = 0;
 	    buf->b_orig_mode = 0;
 	}
@@ -6994,17 +6976,16 @@ buf_check_timestamp(
 	    else
 		reason = "time";
 
-#ifdef FEAT_AUTOCMD
 	    /*
 	     * Only give the warning if there are no FileChangedShell
 	     * autocommands.
 	     * Avoid being called recursively by setting "busy".
 	     */
 	    busy = TRUE;
-# ifdef FEAT_EVAL
+#ifdef FEAT_EVAL
 	    set_vim_var_string(VV_FCS_REASON, (char_u *)reason, -1);
 	    set_vim_var_string(VV_FCS_CHOICE, (char_u *)"", -1);
-# endif
+#endif
 	    ++allbuf_lock;
 	    n = apply_autocmds(EVENT_FILECHANGEDSHELL,
 				      buf->b_fname, buf->b_fname, FALSE, buf);
@@ -7014,18 +6995,17 @@ buf_check_timestamp(
 	    {
 		if (!bufref_valid(&bufref))
 		    EMSG(_("E246: FileChangedShell autocommand deleted buffer"));
-# ifdef FEAT_EVAL
+#ifdef FEAT_EVAL
 		s = get_vim_var_str(VV_FCS_CHOICE);
 		if (STRCMP(s, "reload") == 0 && *reason != 'd')
 		    reload = TRUE;
 		else if (STRCMP(s, "ask") == 0)
 		    n = FALSE;
 		else
-# endif
+#endif
 		    return 2;
 	    }
 	    if (!n)
-#endif
 	    {
 		if (*reason == 'd')
 		    mesg = _("E211: File \"%s\" no longer available");
@@ -7117,9 +7097,7 @@ buf_check_timestamp(
 	    }
 	    else
 	    {
-# ifdef FEAT_AUTOCMD
 		if (!autocmd_busy)
-# endif
 		{
 		    msg_start();
 		    msg_puts_attr(tbuf, HL_ATTR(HLF_E) + MSG_HIST);
@@ -7131,9 +7109,9 @@ buf_check_timestamp(
 		    if (emsg_silent == 0)
 		    {
 			out_flush();
-# ifdef FEAT_GUI
+#ifdef FEAT_GUI
 			if (!focus)
-# endif
+#endif
 			    /* give the user some time to think about it */
 			    ui_delay(1000L, TRUE);
 
@@ -7168,12 +7146,10 @@ buf_check_timestamp(
 #endif
     }
 
-#ifdef FEAT_AUTOCMD
     /* Trigger FileChangedShell when the file was changed in any way. */
     if (bufref_valid(&bufref) && retval != 0)
 	(void)apply_autocmds(EVENT_FILECHANGEDSHELLPOST,
 				      buf->b_fname, buf->b_fname, FALSE, buf);
-#endif
 #ifdef FEAT_GUI
     /* restore this in case an autocommand has set it; it would break
      * 'mousefocus' */
@@ -7257,14 +7233,12 @@ buf_reload(buf_T *buf, int orig_mode)
 	if (saved == OK)
 	{
 	    curbuf->b_flags |= BF_CHECK_RO;	/* check for RO again */
-#ifdef FEAT_AUTOCMD
 	    keep_filetype = TRUE;		/* don't detect 'filetype' */
-#endif
 	    if (readfile(buf->b_ffname, buf->b_fname, (linenr_T)0,
 			(linenr_T)0,
 			(linenr_T)MAXLNUM, &ea, flags) != OK)
 	    {
-#if defined(FEAT_AUTOCMD) && defined(FEAT_EVAL)
+#if defined(FEAT_EVAL)
 		if (!aborting())
 #endif
 		    EMSG2(_("E321: Could not reload \"%s\""), buf->b_fname);
@@ -7313,9 +7287,7 @@ buf_reload(buf_T *buf, int orig_mode)
 	curwin->w_cursor = old_cursor;
 	check_cursor();
 	update_topline();
-#ifdef FEAT_AUTOCMD
 	keep_filetype = FALSE;
-#endif
 #ifdef FEAT_FOLDING
 	{
 	    win_T	*wp;
@@ -7428,8 +7400,7 @@ vim_deltempdir(void)
 	/* remove the trailing path separator */
 	gettail(vim_tempdir)[-1] = NUL;
 	delete_recursive(vim_tempdir);
-	vim_free(vim_tempdir);
-	vim_tempdir = NULL;
+	VIM_CLEAR(vim_tempdir);
     }
 }
 
@@ -7690,11 +7661,7 @@ forward_slash(char_u *fname)
 
 /*
  * Code for automatic commands.
- *
- * Only included when "FEAT_AUTOCMD" has been defined.
  */
-
-#if defined(FEAT_AUTOCMD) || defined(PROTO)
 
 /*
  * The autocommands are stored in a list for each event.
@@ -7793,12 +7760,15 @@ static struct event_name
     {"CmdwinLeave",	EVENT_CMDWINLEAVE},
     {"CmdUndefined",	EVENT_CMDUNDEFINED},
     {"ColorScheme",	EVENT_COLORSCHEME},
+    {"ColorSchemePre",	EVENT_COLORSCHEMEPRE},
     {"CompleteDone",	EVENT_COMPLETEDONE},
     {"CursorHold",	EVENT_CURSORHOLD},
     {"CursorHoldI",	EVENT_CURSORHOLDI},
     {"CursorMoved",	EVENT_CURSORMOVED},
     {"CursorMovedI",	EVENT_CURSORMOVEDI},
+    {"DirChanged",	EVENT_DIRCHANGED},
     {"EncodingChanged",	EVENT_ENCODINGCHANGED},
+    {"ExitPre",		EVENT_EXITPRE},
     {"FileEncoding",	EVENT_ENCODINGCHANGED},
     {"FileAppendPost",	EVENT_FILEAPPENDPOST},
     {"FileAppendPre",	EVENT_FILEAPPENDPRE},
@@ -7847,9 +7817,11 @@ static struct event_name
     {"TabEnter",	EVENT_TABENTER},
     {"TabLeave",	EVENT_TABLEAVE},
     {"TermChanged",	EVENT_TERMCHANGED},
+    {"TerminalOpen",	EVENT_TERMINALOPEN},
     {"TermResponse",	EVENT_TERMRESPONSE},
     {"TextChanged",	EVENT_TEXTCHANGED},
     {"TextChangedI",	EVENT_TEXTCHANGEDI},
+    {"TextChangedP",	EVENT_TEXTCHANGEDP},
     {"User",		EVENT_USER},
     {"VimEnter",	EVENT_VIMENTER},
     {"VimLeave",	EVENT_VIMLEAVE},
@@ -7930,9 +7902,7 @@ static int au_get_grouparg(char_u **argp);
 static int do_autocmd_event(event_T event, char_u *pat, int nested, char_u *cmd, int forceit, int group);
 static int apply_autocmds_group(event_T event, char_u *fname, char_u *fname_io, int force, int group, buf_T *buf, exarg_T *eap);
 static void auto_next_pat(AutoPatCmd *apc, int stop_at_last);
-#if defined(FEAT_AUTOCMD) || defined(FEAT_WILDIGN)
 static int match_file_pat(char_u *pattern, regprog_T **prog, char_u *fname, char_u *sfname, char_u *tail, int allow_dirs);
-#endif
 
 
 static event_T	last_event;
@@ -8017,8 +7987,7 @@ show_autocmd(AutoPat *ap, event_T event)
     static void
 au_remove_pat(AutoPat *ap)
 {
-    vim_free(ap->pat);
-    ap->pat = NULL;
+    VIM_CLEAR(ap->pat);
     ap->buflocal_nr = -1;
     au_need_clean = TRUE;
 }
@@ -8032,10 +8001,7 @@ au_remove_cmds(AutoPat *ap)
     AutoCmd *ac;
 
     for (ac = ap->cmds; ac != NULL; ac = ac->next)
-    {
-	vim_free(ac->cmd);
-	ac->cmd = NULL;
-    }
+	VIM_CLEAR(ac->cmd);
     au_need_clean = TRUE;
 }
 
@@ -8462,19 +8428,19 @@ au_event_restore(char_u *old_ei)
  *				    will be automatically executed for <event>
  *				    when editing a file matching <pat>, in
  *				    the current group.
- * :autocmd <event> <pat>	    Show the auto-commands associated with
+ * :autocmd <event> <pat>	    Show the autocommands associated with
  *				    <event> and <pat>.
- * :autocmd <event>		    Show the auto-commands associated with
+ * :autocmd <event>		    Show the autocommands associated with
  *				    <event>.
- * :autocmd			    Show all auto-commands.
- * :autocmd! <event> <pat> <cmd>    Remove all auto-commands associated with
+ * :autocmd			    Show all autocommands.
+ * :autocmd! <event> <pat> <cmd>    Remove all autocommands associated with
  *				    <event> and <pat>, and add the command
  *				    <cmd>, for the current group.
- * :autocmd! <event> <pat>	    Remove all auto-commands associated with
+ * :autocmd! <event> <pat>	    Remove all autocommands associated with
  *				    <event> and <pat> for the current group.
- * :autocmd! <event>		    Remove all auto-commands associated with
+ * :autocmd! <event>		    Remove all autocommands associated with
  *				    <event> for the current group.
- * :autocmd!			    Remove ALL auto-commands for the current
+ * :autocmd!			    Remove ALL autocommands for the current
  *				    group.
  *
  *  Multiple events and patterns may be given separated by commas.  Here are
@@ -8584,7 +8550,7 @@ do_autocmd(char_u *arg_in, int forceit)
     if (!forceit && *cmd == NUL)
     {
 	/* Highlight title */
-	MSG_PUTS_TITLE(_("\n--- Auto-Commands ---"));
+	MSG_PUTS_TITLE(_("\n--- Autocommands ---"));
     }
 
     /*
@@ -9034,7 +9000,6 @@ check_nomodeline(char_u **argp)
  * Search for a visible window containing the current buffer.  If there isn't
  * one then use "aucmd_win".
  * Set "curbuf" and "curwin" to match "buf".
- * When FEAT_AUTOCMD is not defined another version is used, see below.
  */
     void
 aucmd_prepbuf(
@@ -9087,14 +9052,15 @@ aucmd_prepbuf(
 	aco->use_aucmd_win = TRUE;
 	aucmd_win_used = TRUE;
 	aucmd_win->w_buffer = buf;
+#if defined(FEAT_SYN_HL) || defined(FEAT_SPELL)
 	aucmd_win->w_s = &buf->b_s;
+#endif
 	++buf->b_nwindows;
 	win_init_empty(aucmd_win); /* set cursor and topline to safe values */
 
 	/* Make sure w_localdir and globaldir are NULL to avoid a chdir() in
 	 * win_enter_ext(). */
-	vim_free(aucmd_win->w_localdir);
-	aucmd_win->w_localdir = NULL;
+	VIM_CLEAR(aucmd_win->w_localdir);
 	aco->globaldir = globaldir;
 	globaldir = NULL;
 
@@ -9129,7 +9095,6 @@ aucmd_prepbuf(
 /*
  * Cleanup after executing autocommands for a (hidden) buffer.
  * Restore the window as it was (if possible).
- * When FEAT_AUTOCMD is not defined another version is used, see below.
  */
     void
 aucmd_restbuf(
@@ -9325,7 +9290,7 @@ trigger_cursorhold(void)
 
     if (!did_cursorhold
 	    && has_cursorhold()
-	    && !Recording
+	    && reg_recording == 0
 	    && typebuf.tb_len == 0
 #ifdef FEAT_INS_EXPAND
 	    && !ins_compl_active()
@@ -9376,6 +9341,15 @@ has_textchangedI(void)
 }
 
 /*
+ * Return TRUE when there is a TextChangedP autocommand defined.
+ */
+    int
+has_textchangedP(void)
+{
+    return (first_autopat[(int)EVENT_TEXTCHANGEDP] != NULL);
+}
+
+/*
  * Return TRUE when there is an InsertCharPre autocommand defined.
  */
     int
@@ -9418,13 +9392,13 @@ has_textyankpost(void)
     static int
 apply_autocmds_group(
     event_T	event,
-    char_u	*fname,	    /* NULL or empty means use actual file name */
-    char_u	*fname_io,  /* fname to use for <afile> on cmdline, NULL means
+    char_u	*fname,	     /* NULL or empty means use actual file name */
+    char_u	*fname_io,   /* fname to use for <afile> on cmdline, NULL means
 			       use fname */
-    int		force,	    /* when TRUE, ignore autocmd_busy */
-    int		group,	    /* group ID, or AUGROUP_ALL */
-    buf_T	*buf,	    /* buffer for <abuf> */
-    exarg_T	*eap)	    /* command arguments */
+    int		force,	     /* when TRUE, ignore autocmd_busy */
+    int		group,	     /* group ID, or AUGROUP_ALL */
+    buf_T	*buf,	     /* buffer for <abuf> */
+    exarg_T	*eap UNUSED) /* command arguments */
 {
     char_u	*sfname = NULL;	/* short file name */
     char_u	*tail;
@@ -9532,7 +9506,8 @@ apply_autocmds_group(
      */
     if (fname_io == NULL)
     {
-	if (event == EVENT_COLORSCHEME || event == EVENT_OPTIONSET)
+	if (event == EVENT_COLORSCHEME || event == EVENT_COLORSCHEMEPRE
+						   || event == EVENT_OPTIONSET)
 	    autocmd_fname = NULL;
 	else if (fname != NULL && !ends_excmd(*fname))
 	    autocmd_fname = fname;
@@ -9588,17 +9563,28 @@ apply_autocmds_group(
     {
 	sfname = vim_strsave(fname);
 	/* Don't try expanding FileType, Syntax, FuncUndefined, WindowID,
-	 * ColorScheme or QuickFixCmd* */
+	 * ColorScheme, QuickFixCmd* or DirChanged */
 	if (event == EVENT_FILETYPE
 		|| event == EVENT_SYNTAX
+		|| event == EVENT_CMDLINECHANGED
+		|| event == EVENT_CMDLINEENTER
+		|| event == EVENT_CMDLINELEAVE
+		|| event == EVENT_CMDWINENTER
+		|| event == EVENT_CMDWINLEAVE
+		|| event == EVENT_CMDUNDEFINED
 		|| event == EVENT_FUNCUNDEFINED
 		|| event == EVENT_REMOTEREPLY
 		|| event == EVENT_SPELLFILEMISSING
 		|| event == EVENT_QUICKFIXCMDPRE
 		|| event == EVENT_COLORSCHEME
+		|| event == EVENT_COLORSCHEMEPRE
 		|| event == EVENT_OPTIONSET
-		|| event == EVENT_QUICKFIXCMDPOST)
+		|| event == EVENT_QUICKFIXCMDPOST
+		|| event == EVENT_DIRCHANGED)
+	{
 	    fname = vim_strsave(fname);
+	    autocmd_fname_full = TRUE; /* don't expand it later */
+	}
 	else
 	    fname = FullName_save(fname, FALSE);
     }
@@ -9632,7 +9618,7 @@ apply_autocmds_group(
     autocmd_match = fname;
 
 
-    /* Don't redraw while doing auto commands. */
+    /* Don't redraw while doing autocommands. */
     ++RedrawingDisabled;
     save_sourcing_name = sourcing_name;
     sourcing_name = NULL;	/* don't free this one */
@@ -9866,8 +9852,7 @@ auto_next_pat(
     char_u	*name;
     char	*s;
 
-    vim_free(sourcing_name);
-    sourcing_name = NULL;
+    VIM_CLEAR(sourcing_name);
 
     for (ap = apc->curpat; ap != NULL && !got_int; ap = ap->next)
     {
@@ -9886,7 +9871,7 @@ auto_next_pat(
 		    : ap->buflocal_nr == apc->arg_bufnr)
 	    {
 		name = event_nr2name(apc->event);
-		s = _("%s Auto commands for \"%s\"");
+		s = _("%s Autocommands for \"%s\"");
 		sourcing_name = alloc((unsigned)(STRLEN(s)
 					    + STRLEN(name) + ap->patlen + 1));
 		if (sourcing_name != NULL)
@@ -10222,43 +10207,7 @@ theend:
     return retval;
 }
 
-#else	/* FEAT_AUTOCMD */
 
-/*
- * Prepare for executing commands for (hidden) buffer "buf".
- * This is the non-autocommand version, it simply saves "curbuf" and sets
- * "curbuf" and "curwin" to match "buf".
- */
-    void
-aucmd_prepbuf(
-    aco_save_T	*aco,		/* structure to save values in */
-    buf_T	*buf)		/* new curbuf */
-{
-    aco->save_curbuf = curbuf;
-    --curbuf->b_nwindows;
-    curbuf = buf;
-    curwin->w_buffer = buf;
-    ++curbuf->b_nwindows;
-}
-
-/*
- * Restore after executing commands for a (hidden) buffer.
- * This is the non-autocommand version.
- */
-    void
-aucmd_restbuf(
-    aco_save_T	*aco)		/* structure holding saved values */
-{
-    --curbuf->b_nwindows;
-    curbuf = aco->save_curbuf;
-    curwin->w_buffer = curbuf;
-    ++curbuf->b_nwindows;
-}
-
-#endif	/* FEAT_AUTOCMD */
-
-
-#if defined(FEAT_AUTOCMD) || defined(FEAT_WILDIGN) || defined(PROTO)
 /*
  * Try matching a filename with a "pattern" ("prog" is NULL), or use the
  * precompiled regprog "prog" ("pattern" is NULL).  That avoids calling
@@ -10304,7 +10253,6 @@ match_file_pat(
 	vim_regfree(regmatch.regprog);
     return result;
 }
-#endif
 
 #if defined(FEAT_WILDIGN) || defined(PROTO)
 /*
@@ -10550,8 +10498,7 @@ file_pat_to_reg_pat(
 	    EMSG(_("E219: Missing {."));
 	else
 	    EMSG(_("E220: Missing }."));
-	vim_free(reg_pat);
-	reg_pat = NULL;
+	VIM_CLEAR(reg_pat);
     }
     return reg_pat;
 }

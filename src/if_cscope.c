@@ -519,7 +519,7 @@ cs_add_common(
 #ifdef FEAT_MODIFY_FNAME
     len = (int)STRLEN(fname);
     fbuf = (char_u *)fname;
-    (void)modify_fname((char_u *)":p", &usedlen,
+    (void)modify_fname((char_u *)":p", FALSE, &usedlen,
 					      (char_u **)&fname, &fbuf, &len);
     if (fname == NULL)
 	goto add_err;
@@ -550,7 +550,7 @@ staterr:
     }
 
     /* if filename is a directory, append the cscope database name to it */
-    if ((statbuf.st_mode & S_IFMT) == S_IFDIR)
+    if (S_ISDIR(statbuf.st_mode))
     {
 	fname2 = (char *)alloc((unsigned)(strlen(CSCOPE_DBFILE) + strlen(fname) + 2));
 	if (fname2 == NULL)
@@ -581,12 +581,7 @@ staterr:
 
 	i = cs_insert_filelist(fname2, ppath, flags, &statbuf);
     }
-#if defined(UNIX)
     else if (S_ISREG(statbuf.st_mode) || S_ISLNK(statbuf.st_mode))
-#else
-	/* WIN32 - substitute define S_ISREG from os_unix.h */
-    else if (((statbuf.st_mode) & S_IFMT) == S_IFREG)
-#endif
     {
 	i = cs_insert_filelist(fname, ppath, flags, &statbuf);
     }
@@ -1147,17 +1142,15 @@ cs_find_common(
 	    return FALSE;
 	}
 
-# ifdef FEAT_AUTOCMD
 	if (*qfpos != '0'
 		&& apply_autocmds(EVENT_QUICKFIXCMDPRE, (char_u *)"cscope",
 					       curbuf->b_fname, TRUE, curbuf))
 	{
-#  ifdef FEAT_EVAL
+# ifdef FEAT_EVAL
 	    if (aborting())
 		return FALSE;
-#  endif
-	}
 # endif
+	}
     }
 #endif
 
@@ -1251,10 +1244,8 @@ cs_find_common(
 		    postponed_split = 0;
 		}
 
-# ifdef FEAT_AUTOCMD
 		apply_autocmds(EVENT_QUICKFIXCMDPOST, (char_u *)"cscope",
 					       curbuf->b_fname, TRUE, curbuf);
-# endif
 		if (use_ll)
 		    /*
 		     * In the location list window, use the displayed location
@@ -1479,8 +1470,7 @@ cs_insert_filelist(
     {
 	if ((csinfo[i].ppath = (char *)alloc((unsigned)strlen(ppath) + 1)) == NULL)
 	{
-	    vim_free(csinfo[i].fname);
-	    csinfo[i].fname = NULL;
+	    VIM_CLEAR(csinfo[i].fname);
 	    return -1;
 	}
 	(void)strcpy(csinfo[i].ppath, (const char *)ppath);
@@ -1491,10 +1481,8 @@ cs_insert_filelist(
     {
 	if ((csinfo[i].flags = (char *)alloc((unsigned)strlen(flags) + 1)) == NULL)
 	{
-	    vim_free(csinfo[i].fname);
-	    vim_free(csinfo[i].ppath);
-	    csinfo[i].fname = NULL;
-	    csinfo[i].ppath = NULL;
+	    VIM_CLEAR(csinfo[i].fname);
+	    VIM_CLEAR(csinfo[i].ppath);
 	    return -1;
 	}
 	(void)strcpy(csinfo[i].flags, (const char *)flags);
@@ -1939,10 +1927,8 @@ parse_out:
     if (totsofar == 0)
     {
 	/* No matches, free the arrays and return NULL in "*matches_p". */
-	vim_free(matches);
-	matches = NULL;
-	vim_free(cntxts);
-	cntxts = NULL;
+	VIM_CLEAR(matches);
+	VIM_CLEAR(cntxts);
     }
     *matched = totsofar;
     *matches_p = matches;
@@ -2445,7 +2431,7 @@ cs_resolve_file(int i, char *name)
 	if (csdir != NULL)
 	{
 	    vim_strncpy(csdir, (char_u *)csinfo[i].fname,
-		                       gettail((char_u *)csinfo[i].fname)
+					  gettail((char_u *)csinfo[i].fname)
 						 - (char_u *)csinfo[i].fname);
 	    len += (int)STRLEN(csdir);
 	}

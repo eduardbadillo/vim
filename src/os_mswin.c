@@ -304,9 +304,9 @@ mch_settitle(
 /*
  * Restore the window/icon title.
  * which is one of:
- *  1: Just restore title
- *  2: Just restore icon (which we don't have)
- *  3: Restore title and icon (which we don't have)
+ *  SAVE_RESTORE_TITLE: Just restore title
+ *  SAVE_RESTORE_ICON:  Just restore icon (which we don't have)
+ *  SAVE_RESTORE_BOTH:  Restore title and icon (which we don't have)
  */
     void
 mch_restore_title(int which UNUSED)
@@ -1233,8 +1233,7 @@ PrintDlgProc(
 	    if (prt_name != NULL)
 	    {
 		vimSetDlgItemText(hDlg, IDC_PRINTTEXT2, (char_u *)prt_name);
-		vim_free(prt_name);
-		prt_name = NULL;
+		VIM_CLEAR(prt_name);
 	    }
 	    EnableMenuItem(GetSystemMenu(hDlg, FALSE), SC_CLOSE, MF_GRAYED);
 #ifndef FEAT_GUI
@@ -1679,8 +1678,10 @@ init_fail_dlg:
 mch_print_begin(prt_settings_T *psettings)
 {
     int			ret;
-    static DOCINFO	di;
     char		szBuffer[300];
+#if defined(FEAT_MBYTE)
+    WCHAR		*wp = NULL;
+#endif
 
     hDlgPrint = CreateDialog(GetModuleHandle(NULL), TEXT("PrintDlgBox"),
 					     prt_dlg.hwndOwner, PrintDlgProc);
@@ -1688,10 +1689,29 @@ mch_print_begin(prt_settings_T *psettings)
     wsprintf(szBuffer, _("Printing '%s'"), gettail(psettings->jobname));
     vimSetDlgItemText(hDlgPrint, IDC_PRINTTEXT1, (char_u *)szBuffer);
 
-    vim_memset(&di, 0, sizeof(DOCINFO));
-    di.cbSize = sizeof(DOCINFO);
-    di.lpszDocName = (LPCSTR)psettings->jobname;
-    ret = StartDoc(prt_dlg.hDC, &di);
+#if defined(FEAT_MBYTE)
+    if (enc_codepage >= 0 && (int)GetACP() != enc_codepage)
+	wp = enc_to_utf16(psettings->jobname, NULL);
+    if (wp != NULL)
+    {
+	DOCINFOW	di;
+
+	vim_memset(&di, 0, sizeof(di));
+	di.cbSize = sizeof(di);
+	di.lpszDocName = wp;
+	ret = StartDocW(prt_dlg.hDC, &di);
+	vim_free(wp);
+    }
+    else
+#endif
+    {
+	DOCINFO		di;
+
+	vim_memset(&di, 0, sizeof(di));
+	di.cbSize = sizeof(di);
+	di.lpszDocName = (LPCSTR)psettings->jobname;
+	ret = StartDoc(prt_dlg.hDC, &di);
+    }
 
 #ifdef FEAT_GUI
     /* Give focus back to main window (when using MDI). */
@@ -2164,7 +2184,6 @@ Messaging_WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			   (data->dwData == COPYDATA_RESULT ? 1 :
 							      2))) == FAIL)
 		    vim_free(str);
-#ifdef FEAT_AUTOCMD
 		else if (data->dwData == COPYDATA_REPLY)
 		{
 		    char_u	winstr[30];
@@ -2173,7 +2192,6 @@ Messaging_WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		    apply_autocmds(EVENT_REMOTEREPLY, winstr, str,
 								TRUE, curbuf);
 		}
-#endif
 	    }
 	    return 1;
 	}
@@ -2608,6 +2626,7 @@ serverGetReply(HWND server, int *expr_res, int remove, int wait, int timeout)
 	while (reply_received == 0)
 	{
 #ifdef FEAT_TIMERS
+	    /* TODO: use the return value to decide how long to wait. */
 	    check_due_timer();
 #endif
 	    time(&now);

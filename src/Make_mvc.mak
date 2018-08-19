@@ -26,7 +26,7 @@
 #	GUI interface: GUI=yes (default is no)
 #
 #	GUI with DirectWrite (DirectX): DIRECTX=yes
-#	  (default is no, requires GUI=yes and MBYTE=yes)
+#	  (default is yes if GUI=yes, requires GUI=yes and MBYTE=yes)
 #
 #	Color emoji support: COLOR_EMOJI=yes
 #	  (default is yes if DIRECTX=yes, requires WinSDK 8.1 or later.)
@@ -180,6 +180,10 @@
 
 TARGETOS = WINNT
 
+!ifndef DIRECTX
+DIRECTX = $(GUI)
+!endif
+
 # Select one of eight object code directories, depends on GUI, OLE, DEBUG and
 # interfaces.
 # If you change something else, do "make clean" first!
@@ -289,7 +293,8 @@ MSVC_MAJOR = ($(MSVCVER) / 100 - 6)
 MSVCRT_VER = ($(MSVCVER) / 10 - 60)
 # Visual C++ 2017 needs special handling
 # it has an _MSC_VER of 1910->14.1, but is actually v15 with runtime v140
-!elseif $(MSVCVER) == 1910
+# TODO: what's the maximum value?
+!elseif $(MSVCVER) >= 1910
 MSVC_MAJOR = 15
 MSVCRT_VER = 140
 !else
@@ -484,10 +489,11 @@ NETBEANS_LIB	= WSock32.lib
 
 # need advapi32.lib for GetUserName()
 # need shell32.lib for ExtractIcon()
+# need netapi32.lib for NetUserEnum()
 # gdi32.lib and comdlg32.lib for printing support
 # ole32.lib and uuid.lib are needed for FEAT_SHORTCUT
 CON_LIB = oldnames.lib kernel32.lib advapi32.lib shell32.lib gdi32.lib \
-          comdlg32.lib ole32.lib uuid.lib /machine:$(CPU)
+          comdlg32.lib ole32.lib netapi32.lib uuid.lib /machine:$(CPU)
 !if "$(DELAYLOAD)" == "yes"
 CON_LIB = $(CON_LIB) /DELAYLOAD:comdlg32.dll /DELAYLOAD:ole32.dll DelayImp.lib
 !endif
@@ -687,6 +693,8 @@ CFLAGS = $(CFLAGS) /Zl /MTd
 ! endif
 !endif # DEBUG
 
+!include Make_all.mak
+
 INCL =	vim.h alloc.h arabic.h ascii.h ex_cmds.h farsi.h feature.h globals.h \
 	keymap.h macros.h option.h os_dos.h os_win32.h proto.h regexp.h \
 	spell.h structs.h term.h beval.h $(NBDEBUG_INCL)
@@ -796,7 +804,7 @@ GUI_OBJ = \
 	$(OUTDIR)\os_w32exe.obj
 GUI_LIB = \
 	gdi32.lib version.lib $(IME_LIB) \
-	winspool.lib comctl32.lib advapi32.lib shell32.lib \
+	winspool.lib comctl32.lib advapi32.lib shell32.lib netapi32.lib \
 	/machine:$(CPU)
 !else
 SUBSYSTEM = console
@@ -1153,7 +1161,9 @@ LINK_PDB = /PDB:$(VIM).pdb -debug
 # CFLAGS with /Fo$(OUTDIR)/
 CFLAGS_OUTDIR=$(CFLAGS) /Fo$(OUTDIR)/
 
-conflags = /nologo /subsystem:$(SUBSYSTEM)
+# Add /opt:ref to remove unreferenced functions and data even when /DEBUG is
+# added.
+conflags = /nologo /subsystem:$(SUBSYSTEM) /opt:ref
 
 PATHDEF_SRC = $(OUTDIR)\pathdef.c
 
@@ -1177,6 +1187,13 @@ LINKARGS2 = $(CON_LIB) $(GUI_LIB) $(NODEFAULTLIB) $(LIBC) $(OLE_LIB) user32.lib 
 LINKARGS1 = $(LINKARGS1) /LTCG:STATUS
 !endif
 !endif
+!endif
+
+!if $(MSVC_MAJOR) >= 11 && "$(CPU)" == "AMD64" && "$(GUI)" == "yes"
+# This option is required for VC2012 or later so that 64-bit gvim can
+# accept D&D from 32-bit applications.  NOTE: This disables 64-bit ASLR,
+# therefore the security level becomes as same as VC2010.
+LINKARGS1 = $(LINKARGS1) /HIGHENTROPYVA:NO
 !endif
 
 all:	$(VIM).exe \
@@ -1279,6 +1296,14 @@ testgvim:
 testclean:
 	cd testdir
 	$(MAKE) /NOLOGO -f Make_dos.mak clean
+	cd ..
+
+$(NEW_TESTS):
+	cd testdir
+	- if exist $@.res del $@.res
+	$(MAKE) /NOLOGO -f Make_dos.mak nolog
+	$(MAKE) /NOLOGO -f Make_dos.mak $@.res
+	$(MAKE) /NOLOGO -f Make_dos.mak report
 	cd ..
 
 ###########################################################################

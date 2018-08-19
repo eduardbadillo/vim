@@ -184,9 +184,7 @@ update_topline(void)
 	curwin->w_topline = curwin->w_cursor.lnum;
 	curwin->w_botline = curwin->w_topline;
 	curwin->w_valid |= VALID_BOTLINE|VALID_BOTLINE_AP;
-#ifdef FEAT_SCROLLBIND
 	curwin->w_scbind_pos = 1;
-#endif
 	return;
     }
 
@@ -215,9 +213,7 @@ update_topline(void)
 	curwin->w_topline = 1;
 	curwin->w_botline = 2;
 	curwin->w_valid |= VALID_BOTLINE|VALID_BOTLINE_AP;
-#ifdef FEAT_SCROLLBIND
 	curwin->w_scbind_pos = 1;
-#endif
     }
 
     /*
@@ -538,9 +534,7 @@ set_topline(win_T *wp, linenr_T lnum)
     /* Approximate the value of w_botline */
     wp->w_botline += lnum - wp->w_topline;
     wp->w_topline = lnum;
-#ifdef FEAT_AUTOCMD
     wp->w_topline_was_set = TRUE;
-#endif
 #ifdef FEAT_DIFF
     wp->w_topfill = 0;
 #endif
@@ -2463,22 +2457,27 @@ onepage(int dir, long count)
 	beginline(BL_SOL | BL_FIX);
     curwin->w_valid &= ~(VALID_WCOL|VALID_WROW|VALID_VIRTCOL);
 
-    /*
-     * Avoid the screen jumping up and down when 'scrolloff' is non-zero.
-     * But make sure we scroll at least one line (happens with mix of long
-     * wrapping lines and non-wrapping line).
-     */
-    if (retval == OK && dir == FORWARD && check_top_offset())
+    if (retval == OK && dir == FORWARD)
     {
-	scroll_cursor_top(1, FALSE);
-	if (curwin->w_topline <= old_topline
-				  && old_topline < curbuf->b_ml.ml_line_count)
+	// Avoid the screen jumping up and down when 'scrolloff' is non-zero.
+	// But make sure we scroll at least one line (happens with mix of long
+	// wrapping lines and non-wrapping line).
+	if (check_top_offset())
 	{
-	    curwin->w_topline = old_topline + 1;
+	    scroll_cursor_top(1, FALSE);
+	    if (curwin->w_topline <= old_topline
+				  && old_topline < curbuf->b_ml.ml_line_count)
+	    {
+		curwin->w_topline = old_topline + 1;
 #ifdef FEAT_FOLDING
+		(void)hasFolding(curwin->w_topline, &curwin->w_topline, NULL);
+#endif
+	    }
+	}
+#ifdef FEAT_FOLDING
+	else if (curwin->w_botline > curbuf->b_ml.ml_line_count)
 	    (void)hasFolding(curwin->w_topline, &curwin->w_topline, NULL);
 #endif
-	}
     }
 
     redraw_later(VALID);
@@ -2775,7 +2774,6 @@ halfpage(int flag, linenr_T Prenum)
     redraw_later(VALID);
 }
 
-#if defined(FEAT_CURSORBIND) || defined(PROTO)
     void
 do_check_cursorbind(void)
 {
@@ -2848,4 +2846,3 @@ do_check_cursorbind(void)
     curwin = old_curwin;
     curbuf = old_curbuf;
 }
-#endif /* FEAT_CURSORBIND */

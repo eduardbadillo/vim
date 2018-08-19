@@ -788,6 +788,29 @@ property_event(GtkWidget *widget,
 }
 #endif /* defined(FEAT_CLIENTSERVER) */
 
+/*
+ * Handle changes to the "Xft/DPI" setting
+ */
+    static void
+gtk_settings_xft_dpi_changed_cb(GtkSettings *gtk_settings UNUSED,
+                                GParamSpec *pspec UNUSED,
+                                gpointer data UNUSED)
+{
+    // Create a new PangoContext for this screen, and initialize it
+    // with the current font if necessary.
+    if (gui.text_context != NULL)
+	g_object_unref(gui.text_context);
+
+    gui.text_context = gtk_widget_create_pango_context(gui.mainwin);
+    pango_context_set_base_dir(gui.text_context, PANGO_DIRECTION_LTR);
+
+    if (gui.norm_font != NULL)
+    {
+	// force default font
+	gui_mch_init_font(*p_guifont == NUL ? NULL : p_guifont, FALSE);
+	gui_set_shellsize(TRUE, FALSE, RESIZE_BOTH);
+    }
+}
 
 #if GTK_CHECK_VERSION(3,0,0)
 typedef gboolean timeout_cb_type;
@@ -1366,15 +1389,21 @@ key_release_event(GtkWidget *widget UNUSED,
  * Selection handlers:
  */
 
+/* Remember when clip_lose_selection was called from here, we must not call
+ * gtk_selection_owner_set() then. */
+static int in_selection_clear_event = FALSE;
+
     static gint
 selection_clear_event(GtkWidget		*widget UNUSED,
 		      GdkEventSelection	*event,
 		      gpointer		user_data UNUSED)
 {
+    in_selection_clear_event = TRUE;
     if (event->selection == clip_plus.gtk_sel_atom)
 	clip_lose_selection(&clip_plus);
     else
 	clip_lose_selection(&clip_star);
+    in_selection_clear_event = FALSE;
 
     return TRUE;
 }
@@ -3838,8 +3867,7 @@ gui_mch_init(void)
 # endif
     }
 #endif
-    vim_free(gui_argv);
-    gui_argv = NULL;
+    VIM_CLEAR(gui_argv);
 
 #if GLIB_CHECK_VERSION(2,1,3)
     /* Set the human-readable application name */
@@ -4378,6 +4406,15 @@ gui_mch_init(void)
     /* Pretend we don't have input focus, we will get an event if we do. */
     gui.in_focus = FALSE;
 
+    // Handle changes to the "Xft/DPI" setting.
+    {
+	GtkSettings *gtk_settings =
+			 gtk_settings_get_for_screen(gdk_screen_get_default());
+
+	g_signal_connect(gtk_settings, "notify::gtk-xft-dpi",
+			   G_CALLBACK(gtk_settings_xft_dpi_changed_cb), NULL);
+    }
+
     return OK;
 }
 
@@ -4668,8 +4705,7 @@ gui_mch_open(void)
 		y += hh - pixel_height;
 	    gtk_window_move(GTK_WINDOW(gui.mainwin), x, y);
 	}
-	vim_free(gui.geom);
-	gui.geom = NULL;
+	VIM_CLEAR(gui.geom);
 
 	/* From now until everyone's stopped trying to set the window hints
 	 * to their correct minimum values, stop them being set as we need
@@ -5603,15 +5639,17 @@ gui_mch_free_font(GuiFont font)
     guicolor_T
 gui_mch_get_color(char_u *name)
 {
+    guicolor_T color = INVALCOLOR;
+
     if (!gui.in_use)		/* can't do this when GUI not running */
-	return INVALCOLOR;
+	return color;
+
+    if (name != NULL)
+	color = gui_get_color_cmn(name);
 
 #if GTK_CHECK_VERSION(3,0,0)
-    return name != NULL ? gui_get_color_cmn(name) : INVALCOLOR;
+    return color;
 #else
-    guicolor_T color;
-
-    color = (name != NULL) ? gui_get_color_cmn(name) : INVALCOLOR;
     if (color == INVALCOLOR)
 	return INVALCOLOR;
 
@@ -7050,8 +7088,11 @@ clip_mch_request_selection(VimClipboard *cbd)
     void
 clip_mch_lose_selection(VimClipboard *cbd UNUSED)
 {
-    gtk_selection_owner_set(NULL, cbd->gtk_sel_atom, gui.event_time);
-    gui_mch_update();
+    if (!in_selection_clear_event)
+    {
+	gtk_selection_owner_set(NULL, cbd->gtk_sel_atom, gui.event_time);
+	gui_mch_update();
+    }
 }
 
 /*

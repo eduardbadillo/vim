@@ -905,11 +905,11 @@ do_tag(
 			continue;
 		    }
 
-		    dict_add_nr_str(dict, "text", 0L, tag_name);
-		    dict_add_nr_str(dict, "filename", 0L, fname);
-		    dict_add_nr_str(dict, "lnum", lnum, NULL);
+		    dict_add_string(dict, "text", tag_name);
+		    dict_add_string(dict, "filename", fname);
+		    dict_add_number(dict, "lnum", lnum);
 		    if (lnum == 0)
-			dict_add_nr_str(dict, "pattern", 0L, cmd);
+			dict_add_string(dict, "pattern", cmd);
 		}
 
 		vim_snprintf((char *)IObuff, IOSIZE, "ltag %s", tag);
@@ -1017,7 +1017,7 @@ do_tag(
 		}
 	    }
 
-#ifdef FEAT_AUTOCMD
+#if defined(FEAT_EVAL)
 	    /* Let the SwapExists event know what tag we are jumping to. */
 	    vim_snprintf((char *)IObuff, IOSIZE, ":ta %s\r", name);
 	    set_vim_var_string(VV_SWAPCOMMAND, IObuff, -1);
@@ -1028,7 +1028,7 @@ do_tag(
 	     */
 	    i = jumpto_tag(matches[cur_match], forceit, type != DT_CSCOPE);
 
-#ifdef FEAT_AUTOCMD
+#if defined(FEAT_EVAL)
 	    set_vim_var_string(VV_SWAPCOMMAND, NULL, -1);
 #endif
 
@@ -1091,8 +1091,7 @@ end_do_tag:
     void
 tag_freematch(void)
 {
-    vim_free(tagmatchname);
-    tagmatchname = NULL;
+    VIM_CLEAR(tagmatchname);
 }
 
     static void
@@ -2596,7 +2595,6 @@ findtag_end:
 }
 
 static garray_T tag_fnames = GA_EMPTY;
-static void found_tagfile_cb(char_u *fname, void *cookie);
 
 /*
  * Callback function for finding all "tags" and "tags-??" files in
@@ -2606,8 +2604,15 @@ static void found_tagfile_cb(char_u *fname, void *cookie);
 found_tagfile_cb(char_u *fname, void *cookie UNUSED)
 {
     if (ga_grow(&tag_fnames, 1) == OK)
-	((char_u **)(tag_fnames.ga_data))[tag_fnames.ga_len++] =
-							   vim_strsave(fname);
+    {
+	char_u	*tag_fname = vim_strsave(fname);
+
+#ifdef BACKSLASH_IN_FILENAME
+	slash_adjust(tag_fname);
+#endif
+	simplify_filename(tag_fname);
+	((char_u **)(tag_fnames.ga_data))[tag_fnames.ga_len++] = tag_fname;
+    }
 }
 
 #if defined(EXITFREE) || defined(PROTO)
@@ -2620,10 +2625,7 @@ free_tag_stuff(void)
 
 # if defined(FEAT_QUICKFIX)
     if (ptag_entry.tagname)
-    {
-	vim_free(ptag_entry.tagname);
-	ptag_entry.tagname = NULL;
-    }
+	VIM_CLEAR(ptag_entry.tagname);
 # endif
 }
 #endif
@@ -2642,6 +2644,7 @@ get_tagfname(
 {
     char_u		*fname = NULL;
     char_u		*r_ptr;
+    int			i;
 
     if (first)
 	vim_memset(tnp, 0, sizeof(tagname_T));
@@ -2683,6 +2686,14 @@ get_tagfname(
 	    ++tnp->tn_hf_idx;
 	    STRCPY(buf, p_hf);
 	    STRCPY(gettail(buf), "tags");
+#ifdef BACKSLASH_IN_FILENAME
+	    slash_adjust(buf);
+#endif
+	    simplify_filename(buf);
+
+	    for (i = 0; i < tag_fnames.ga_len; ++i)
+		if (STRCMP(buf, ((char_u **)(tag_fnames.ga_data))[i]) == 0)
+		    return FAIL; // avoid duplicate file names
 	}
 	else
 	    vim_strncpy(buf, ((char_u **)(tag_fnames.ga_data))[
@@ -2958,12 +2969,9 @@ matching_line_len(char_u *lbuf)
     char_u	*p = lbuf + 1;
 
     /* does the same thing as parse_match() */
-    p += STRLEN(p) + 2;
+    p += STRLEN(p) + 1;
 #ifdef FEAT_EMACS_TAGS
-    if (*p)
-	p += STRLEN(p);
-    else
-	++p;
+    p += STRLEN(p) + 1;
 #endif
     return (p - lbuf) + STRLEN(p);
 }
@@ -3181,11 +3189,7 @@ jumpto_tag(
      * file.  Also accept a file name for which there is a matching BufReadCmd
      * autocommand event (e.g., http://sys/file).
      */
-    if (mch_getperm(fname) < 0
-#ifdef FEAT_AUTOCMD
-	    && !has_autocmd(EVENT_BUFREADCMD, fname, NULL)
-#endif
-       )
+    if (mch_getperm(fname) < 0 && !has_autocmd(EVENT_BUFREADCMD, fname, NULL))
     {
 	retval = NOTAGFILE;
 	vim_free(nofile_fname);
@@ -3420,9 +3424,7 @@ jumpto_tag(
 #ifdef FEAT_SEARCH_EXTRA
 	/* restore no_hlsearch when keeping the old search pattern */
 	if (search_options)
-	{
-	    SET_NO_HLSEARCH(save_no_hlsearch);
-	}
+	    set_no_hlsearch(save_no_hlsearch);
 #endif
 
 	/* Return OK if jumped to another file (at least we found the file!). */
@@ -3921,7 +3923,7 @@ add_tag_field(
 	vim_strncpy(buf, start, len);
     }
     buf[len] = NUL;
-    retval = dict_add_nr_str(dict, field_name, 0L, buf);
+    retval = dict_add_string(dict, field_name, buf);
     vim_free(buf);
     return retval;
 }
@@ -3966,7 +3968,7 @@ get_tags(list_T *list, char_u *pat, char_u *buf_fname)
 						       tp.command_end) == FAIL
 		    || add_tag_field(dict, "kind", tp.tagkind,
 						      tp.tagkind_end) == FAIL
-		    || dict_add_nr_str(dict, "static", is_static, NULL) == FAIL)
+		    || dict_add_number(dict, "static", is_static) == FAIL)
 		ret = FAIL;
 
 	    vim_free(full_fname);
